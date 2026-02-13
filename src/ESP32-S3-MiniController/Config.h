@@ -24,9 +24,10 @@
 
 // ---------------------- Button Inputs -----------------------------
 // Buttons are active LOW and follow the standard MagSenseUI arrangement.
-#define PIN_BTN_UP 5     // Up navigation button
-#define PIN_BTN_DOWN 6   // Down navigation button
-#define PIN_BTN_SEL 7    // Select/confirm button
+#define PIN_BTN_UP     4 // Up navigation button
+#define PIN_BTN_LEFT   5 // Left navigation button
+#define PIN_BTN_RIGHT  6 // Right navigation button
+#define PIN_BTN_DOWN   7 // Down navigation button
 
 // ---------------------- LEDC Clock Generator -----------------------
 // Used to generate the CLOCK signal for the motor using PWM.
