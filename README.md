@@ -1,13 +1,11 @@
 ---
-
 # ESP32-S3-MiniController (v2.0)
 
-A compact **motor tester / I/O controller** based on the **ESP32‑S3 SuperMini**, with a **1.3" SH1106 OLED**, four **cursor‑style buttons** (UP/DOWN/LEFT/RIGHT), and **configurable opto‑isolated I/O**.  
+A compact **motor tester / I/O controller** based on the **ESP32‑S3 SuperMini**, with a **1.3" SH1106 OLED**, four **cursor‑style buttons** (UP/DOWN/LEFT/RIGHT), and **configurable opto‑isolated I/O**.
 It provides a clean **on‑device UI** for setting speed, direction, brake, and for managing **stored motor profiles** with persistent settings (NVS). Supports **English/Spanish**, **serial telemetry**, and a **diagnostics** mode.
 
-> **Key idea:** With optocouplers on the I/O lines, you can safely interface **24 V logic** drivers while keeping the ESP32 at **3.3 V**.  
+> **Key idea:** With optocouplers on the I/O lines, you can safely interface **24 V logic** drivers while keeping the ESP32 at **3.3 V**.
 > **Important:** If you **swap the optocouplers' orientation**, the **signal direction inverts**—the same ESP32 pin can function as an **output** (driving the opto LED) or an **input** (reading the opto transistor). The firmware lets you **configure that pin's role** accordingly.
-
 ---
 
 ### **Additional Note about Pull‑Up Resistors**
@@ -239,7 +237,7 @@ Baud rate: **115200**.
 ## 📁 Repository Layout
 
     /src
-      ESP32-S3-MiniController.ino  // Main setup and loop
+      ESP32-S3-MiniController.ino   // Main setup and loop
       Config.h                      // Pin definitions and constants
       Buttons.h                     // 4-button debounced input handling
       Profiles.h                    // MotorProfile + ProfileStore (NVS)
