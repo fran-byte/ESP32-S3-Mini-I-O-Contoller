@@ -1,136 +1,159 @@
 #pragma once
+
+// ------------------------------ UI String Table ------------------------------
+// 'Strings' holds all UI text labels for a given language. The UI consumes this
+// as a read-only, zero-terminated C-string table (const char* per label).
+// You can provide multiple language instances (e.g., STR_EN, STR_ES) and select
+// them at runtime based on user settings.
 struct Strings
 {
-    const char *hdr_home;
-    const char *rpm;
-    const char *speed;
-    const char *dir;
-    const char *cw;
-    const char *ccw;
-    const char *brake;
-    const char *on;
-    const char *off;
-    const char *enable;
-    const char *ld;
-    const char *alarm;
-    const char *ok;
-    const char *footer_home;
-    const char *menu;
-    const char *m_start;
-    const char *m_stop;
-    const char *m_set_ccw;
-    const char *m_set_cw;
-    const char *m_brake_on;
-    const char *m_brake_off;
-    const char *m_select_motor;
-    const char *m_add_motor;
-    const char *m_delete_active;
-    const char *m_settings;
-    const char *m_about;
-    const char *m_back;
-    const char *footer_menu;
-    // Wizard
-    const char *w_name;
-    const char *w_has_brake;
-    const char *w_has_fg;
-    const char *w_has_ld;
-    const char *w_ld_active;
-    const char *low;
-    const char *high;
-    const char *w_has_stop;
-    const char *w_stop_active;
-    const char *w_has_enable;
-    const char *w_enable_active;
-    const char *w_ppr;
-    const char *w_maxclk;
-    const char *w_save;
-    const char *yes;
-    const char *no;
-    const char *hint_yesno;
-    const char *hint_choice;
-    const char *hint_number;
-    const char *hint_text;
-    // Settings
-    const char *s_title;
-    const char *s_language;
-    const char *s_lang_en;
-    const char *s_lang_es;
-    const char *s_telemetry;
-    const char *s_telemetry_on;
-    const char *s_telemetry_off;
-    // About
-    const char *about_title;
-    const char *about_author;
-    const char *about_version;
-    const char *about_build;
-    // Diag
-    const char *diag_title;
-    const char *diag_hint;
+    // ---------------- Home screen ----------------
+    const char *hdr_home;     // Header/title on the home screen
+    const char *rpm;          // "RPM:" label for tachometer reading
+    const char *speed;        // "Speed:" label for clock/frequency
+    const char *dir;          // "DIR:" label (direction)
+    const char *cw;           // "CW" text (clockwise)
+    const char *ccw;          // "CCW" text (counterclockwise)
+    const char *brake;        // "BRAKE:" label
+    const char *on;           // "ON"
+    const char *off;          // "OFF"
+    const char *enable;       // "ENABLE:" label
+    const char *ld;           // "LD:" label (fault/alarm line)
+    const char *alarm;        // "ALARM"
+    const char *ok;           // "OK"
+    const char *footer_home;  // Footer/help hint displayed on home
+
+    // ---------------- Main menu ------------------
+    const char *menu;             // Main menu title
+    const char *m_start;          // Start motor entry
+    const char *m_stop;           // Stop motor entry
+    const char *m_set_ccw;        // Force DIR = CCW action
+    const char *m_set_cw;         // Force DIR = CW action
+    const char *m_brake_on;       // Turn brake ON
+    const char *m_brake_off;      // Turn brake OFF
+    const char *m_select_motor;   // Open motor selection list
+    const char *m_add_motor;      // Start add-motor wizard
+    const char *m_delete_active;  // Delete currently active profile
+    const char *m_settings;       // Open settings submenu
+    const char *m_about;          // Open about screen
+    const char *m_back;           // Go back one level
+    const char *footer_menu;      // Footer/help for menu navigation
+
+    // ---------------- Wizard (add/edit profile) ---
+    const char *w_name;           // Prompt: motor name
+    const char *w_has_brake;      // Prompt: has BRAKE?
+    const char *w_has_fg;         // Prompt: has FG?
+    const char *w_has_ld;         // Prompt: has LD?
+    const char *w_ld_active;      // Prompt: LD polarity
+    const char *low;              // Choice: LOW
+    const char *high;             // Choice: HIGH
+    const char *w_has_stop;       // Prompt: has STOP?
+    const char *w_stop_active;    // Prompt: STOP polarity
+    const char *w_has_enable;     // Prompt: has ENABLE?
+    const char *w_enable_active;  // Prompt: ENABLE polarity
+    const char *w_ppr;            // Prompt: pulses per revolution
+    const char *w_maxclk;         // Prompt: max clock (Hz)
+    const char *w_save;           // Prompt: save profile?
+    const char *yes;              // Choice: YES
+    const char *no;               // Choice: NO
+    const char *hint_yesno;       // Footer hint for yes/no screens
+    const char *hint_choice;      // Footer hint for choice lists
+    const char *hint_number;      // Footer hint for numeric input
+    const char *hint_text;        // Footer hint for text entry
+
+    // ---------------- Settings --------------------
+    const char *s_title;          // Settings title
+    const char *s_language;       // Language label
+    const char *s_lang_en;        // Language option: English
+    const char *s_lang_es;        // Language option: Spanish
+    const char *s_telemetry;      // Telemetry label
+    const char *s_telemetry_on;   // Telemetry ON label
+    const char *s_telemetry_off;  // Telemetry OFF label
+
+    // ---------------- About -----------------------
+    const char *about_title;      // About title
+    const char *about_author;     // Author label
+    const char *about_version;    // Version label
+    const char *about_build;      // Build label
+
+    // ---------------- Diagnostics -----------------
+    const char *diag_title;       // Diagnostics title
+    const char *diag_hint;        // Hint to exit diagnostics
 };
 
+// English string table (read-only). Keep texts concise to fit 128x64 OLED.
+// Tip: Prefer short words to avoid truncation and reduce redraw artifacts.
 static const Strings STR_EN = {
-    "Motor Tester",
-    "RPM:",
-    "Speed:",
-    "DIR:",
-    "CW",
-    "CCW",
-    "BRAKE:",
-    "ON",
-    "OFF",
-    "ENABLE:",
-    "LD:",
-    "ALARM",
-    "OK",
-    "UP/DOWN: Speed  SEL: Menu  HOLD SEL: Back/Start-Stop",
-    "SETTINGS",
-    "Start",
-    "Stop",
-    "Set DIR = CCW",
-    "Set DIR = CW",
-    "Brake ON",
-    "Brake OFF",
-    "Select Motor",
-    "Add Motor",
-    "Delete Active",
-    "Language/Telemetry",
-    "About",
-    "Back",
-    "UP/DOWN=Move  SEL=Select",
-    // Wizard
-    "Name:",
-    "Has BRAKE?",
-    "Has FG?",
-    "Has LD?",
-    "LD active when:",
-    "LOW",
-    "HIGH",
-    "Has STOP?",
-    "STOP active when:",
-    "Has ENABLE?",
-    "ENABLE active:",
-    "PPR (pulses/rev)",
-    "Max CLOCK (Hz)",
-    "Save profile?",
-    "YES",
-    "NO",
-    "UP/DOWN=Change  SEL=Next",
-    "UP/DOWN=Move  SEL=OK",
-    "UP/DOWN=Change  SEL=OK",
-    "UP/DN=Char SEL=Next/END",
-    // Settings
-    "SETTINGS",
-    "Language",
-    "English",
-    "Espanol",
-    "Telemetry",
-    "Telemetry: ON",
-    "Telemetry: OFF",
-    // About
-    "ABOUT",
-    "Author: Fran-Byte",
-    "Version: v2.0",
-    "Build:",
-    // Diag
-    "DIAGNOSTICS",
-    "HOLD SEL to exit"};
+    // ---------------- Home ----------------
+    "Motor Tester",                                  // hdr_home
+    "RPM:",                                          // rpm
+    "Speed:",                                        // speed
+    "DIR:",                                          // dir
+    "CW",                                            // cw
+    "CCW",                                           // ccw
+    "BRAKE:",                                        // brake
+    "ON",                                            // on
+    "OFF",                                           // off
+    "ENABLE:",                                       // enable
+    "LD:",                                           // ld
+    "ALARM",                                         // alarm
+    "OK",                                            // ok
+    "UP/DOWN: Speed  SEL: Menu  HOLD SEL: Back/Start-Stop", // footer_home
+
+    // ---------------- Menu ----------------
+    "SETTINGS",                                      // menu
+    "Start",                                         // m_start
+    "Stop",                                          // m_stop
+    "Set DIR = CCW",                                 // m_set_ccw
+    "Set DIR = CW",                                  // m_set_cw
+    "Brake ON",                                      // m_brake_on
+    "Brake OFF",                                     // m_brake_off
+    "Select Motor",                                  // m_select_motor
+    "Add Motor",                                     // m_add_motor
+    "Delete Active",                                 // m_delete_active
+    "Language/Telemetry",                            // m_settings
+    "About",                                         // m_about
+    "Back",                                          // m_back
+    "UP/DOWN=Move  SEL=Select",                      // footer_menu
+
+    // ---------------- Wizard ----------------
+    "Name:",                                         // w_name
+    "Has BRAKE?",                                    // w_has_brake
+    "Has FG?",                                       // w_has_fg
+    "Has LD?",                                       // w_has_ld
+    "LD active when:",                               // w_ld_active
+    "LOW",                                           // low
+    "HIGH",                                          // high
+    "Has STOP?",                                     // w_has_stop
+    "STOP active when:",                             // w_stop_active
+    "Has ENABLE?",                                   // w_has_enable
+    "ENABLE active:",                                // w_enable_active
+    "PPR (pulses/rev)",                              // w_ppr
+    "Max CLOCK (Hz)",                                // w_maxclk
+    "Save profile?",                                 // w_save
+    "YES",                                           // yes
+    "NO",                                            // no
+    "UP/DOWN=Change  SEL=Next",                      // hint_yesno
+    "UP/DOWN=Move  SEL=OK",                          // hint_choice
+    "UP/DOWN=Change  SEL=OK",                        // hint_number
+    "UP/DN=Char SEL=Next/END",                       // hint_text
+
+    // ---------------- Settings ----------------
+    "SETTINGS",                                      // s_title
+    "Language",                                      // s_language
+    "English",                                       // s_lang_en
+    "Espanol",                                       // s_lang_es
+    "Telemetry",                                     // s_telemetry
+    "Telemetry: ON",                                 // s_telemetry_on
+    "Telemetry: OFF",                                // s_telemetry_off
+
+    // ---------------- About ----------------
+    "ABOUT",                                         // about_title
+    "Author: Fran-Byte",                             // about_author
+    "Version: v2.0",                                 // about_version
+    "Build:",                                        // about_build
+
+    // ---------------- Diagnostics ------------
+    "DIAGNOSTICS",                                   // diag_title
+    "HOLD SEL to exit"                               // diag_hint
+};
