@@ -1210,11 +1210,11 @@ private:
     }
 
     // Diagnostics screen: live button states, LD, RPM, frequency, direction.
-    // Hold SELECT (long) to exit back to HOME.
+    // Hold LEFT to exit back to HOME.
     void handleDiag()
     {
-        // Check exit (long select) first to keep UX responsive.
-        if (btn->selLong())
+       // RIGHT long -> salir a HOME
+        if (btn->rightLongPress))
         {
             state = HOME;
             needRedraw = true;
