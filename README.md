@@ -236,7 +236,7 @@ Baud rate: **115200**.
 
 ## 📁 Repository Layout
 
-    /src
+    /src/ESP32-S3-MiniController/
       ESP32-S3-MiniController.ino   // Main setup and loop
       Config.h                      // Pin definitions and constants
       Buttons.h                     // 4-button debounced input handling
