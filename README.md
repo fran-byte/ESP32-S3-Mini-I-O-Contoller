@@ -9,7 +9,16 @@ It provides a clean **on‑device UI** for setting speed, direction, brake, enab
 > **Key idea:** With optocouplers on the I/O lines, you can safely interface **24 V logic** drivers while keeping the ESP32 at **3.3 V**.  
 > **Important:** If you **swap the optocouplers’ orientation**, the **signal direction inverts**—the same ESP32 pin can function as an **output** (driving the opto LED) or an **input** (reading the opto transistor). The firmware lets you **configure that pin’s role** accordingly.
 
+
 ***
+
+### **Additional Note about Pull‑Up Resistors**
+
+Pull‑up resistors on the ESP32 side can be **omitted** if they are **enabled in software** (using the internal pull‑ups).  
+On the external side, you must verify whether the **external circuit already includes pull‑ups**; if it does not, then **you must add them** to ensure correct signal operation when using optocouplers in input mode.
+
+***
+
 
 ## ✨ Features
 
