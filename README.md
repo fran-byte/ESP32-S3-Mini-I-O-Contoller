@@ -259,25 +259,7 @@ Baud rate: **115200**.
 
 ## 📜 License
 
-Add your preferred license here (e.g., MIT, Apache‑2.0).  
-Include a `LICENSE` file in the repository.
-
----
-
-## 🙌 Credits
-
-- **Author:** Fran‑Byte
-- OLED rendering: **U8g2** by olikraus
-- Built with the **ESP32‑S3 Arduino** core
-
----
-
-## 🗺️ Roadmap / Ideas
-
-- Soft‑ramp (accel/decel) for target Hz
-- More profile slots or export/import over Serial
-- Additional languages / font packs
-- Optional CRC/versioning for NVS profile schema
+[![LICENSE](https://img.shields.io/badge/license-MIT-lightgrey.svg)](/LICENSE.txt)
 
 ---
 
