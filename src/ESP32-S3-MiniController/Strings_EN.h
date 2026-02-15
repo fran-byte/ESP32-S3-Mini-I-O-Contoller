@@ -31,6 +31,7 @@ struct Strings
     const char *m_set_cw;         // Force DIR = CW action
     const char *m_brake_on;       // Turn brake ON
     const char *m_brake_off;      // Turn brake OFF
+    const char *m_autotest;       // Run automatic test sequence
     const char *m_select_motor;   // Open motor selection list
     const char *m_add_motor;      // Start add-motor wizard
     const char *m_delete_active;  // Delete currently active profile
@@ -108,6 +109,7 @@ static const Strings STR_EN = {
     "Set DIR = CW",                                  // m_set_cw
     "Brake ON",                                      // m_brake_on
     "Brake OFF",                                     // m_brake_off
+    "Auto Test",                                     // m_autotest
     "Select Motor",                                  // m_select_motor
     "Add Motor",                                     // m_add_motor
     "Delete Active",                                 // m_delete_active

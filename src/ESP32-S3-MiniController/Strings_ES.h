@@ -31,6 +31,7 @@ static const Strings STR_ES = {
     "DIR = CW",                                      // m_set_cw
     "Freno ON",                                      // m_brake_on
     "Freno OFF",                                     // m_brake_off
+    "Auto Test",                                     // m_autotest
     "Seleccionar Motor",                             // m_select_motor
     "Anadir Motor",                                  // m_add_motor
     "Borrar Activo",                                 // m_delete_active

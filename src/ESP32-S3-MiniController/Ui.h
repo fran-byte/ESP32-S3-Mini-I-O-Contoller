@@ -8,6 +8,7 @@
 #include "Buttons.h"
 #include "Profiles.h"
 #include "Motor.h"
+#include "SimpleUnicode.h"
 
 class UI
 {
@@ -85,6 +86,9 @@ public:
         case DIAG:
             handleDiag();
             break;
+        case AUTOTEST:
+            handleAutoTest();
+            break;
         }
     }
 
@@ -124,7 +128,8 @@ private:
         SETTINGS_LANG,
         SETTINGS_TELE,
         ABOUT,
-        DIAG
+        DIAG,
+        AUTOTEST
     };
 
     // Resolve the current string table based on language.
@@ -168,8 +173,8 @@ private:
         delay(900);
     }
 
-    // Render the HOME screen (header, RPM/speed, status lines, footer hints).
-    // Redraw is gated by 'needRedraw' for efficiency.
+    // Render the HOME screen with improved visual design using custom glyphs
+    // New layout: Status header, progress bar, compact states, footer
     void drawHome()
     {
         if (!needRedraw)
@@ -179,105 +184,127 @@ private:
         disp->firstPage();
         do
         {
-            // Header with motor name (or default) and ON/OFF status
+            // ============ HEADER (Y: 0-12) ============
+            // [●] RUNNING / [ ] STOPPED + RPM on the right
             disp->setFont(u8g2_font_6x12_tf);
-            const char *title = (motor->prof.name[0] ? motor->prof.name : S().hdr_home);
-            disp->drawBox(0, 0, 128, 13);
-            disp->setDrawColor(0);
-
-            // Motor name (left)
-            disp->drawStr(2, 10, title);
-
-            // ON/OFF status (right)
-            const char *status = motor->running ? "ON" : "OFF";
-            int statusWidth = strlen(status) * 6; // 6 px per character at 6x12 font
-            disp->drawStr(128 - statusWidth - 2, 10, status);
-
-            disp->setDrawColor(1);
-
-            int y = 22; // Initial Y for content
-
-            // RPM (only if FG is available)
+            
+            // Status icon (custom glyph) and text with brackets
+            int xPos = 2;
+            
+            // Draw opening bracket [ (aligned with circle)
             disp->setFont(u8g2_font_6x12_tf);
+            disp->drawStr(xPos, 8, "[");
+            xPos += 6; // Move past [
+            
+            // Draw status icon (filled or empty circle)
+            if (motor->running)
+                SimpleUnicode::drawFilledCircle(disp, xPos, 2);
+            else
+                SimpleUnicode::drawEmptyCircle(disp, xPos, 2);
+            
+            xPos += 8; // Move past the icon
+            
+            // Draw closing bracket ]
+            disp->setFont(u8g2_font_6x12_tf);
+            disp->drawStr(xPos, 8, "]");
+            xPos += 6; // Move past ]
+            
+            // Add space and status text
+            disp->setFont(u8g2_font_6x12_tf);
+            disp->drawStr(xPos + 2, 10, motor->running ? "RUNNING" : "STOPPED");
+            
+            // RPM (right side, only if FG present)
             if (motor->prof.hasFG)
             {
-                char line[32];
-                snprintf(line, sizeof(line), "%s %lu", S().rpm, (unsigned long)motor->rpm);
-                disp->drawStr(2, y, line);
-                y += 11;
+                char rpmStr[16];
+                snprintf(rpmStr, sizeof(rpmStr), "%lu", (unsigned long)motor->rpm);
+                
+                // Calculate position for right alignment
+                disp->setFont(u8g2_font_6x12_tf);
+                int rpmWidth = strlen(rpmStr) * 6; // Approximate text width
+                int rpmX = 128 - rpmWidth - 10;    // Leave space for rotation icon
+                
+                disp->drawStr(rpmX, 10, rpmStr);
+                
+                // Draw rotation icon after the number
+                SimpleUnicode::drawRotateArrow(disp, 128 - 10, 2);
             }
-
-            // Target speed (Hz), always shown
-            char spd[40];
-            snprintf(spd, sizeof(spd), "%s %lu Hz", S().speed, (unsigned long)motor->targetHz);
-            disp->drawStr(2, y, spd);
-            y += 11;
-
-            // Secondary lines (smaller font 5x8): DIR + optional BRAKE/ENABLE/LD
-            disp->setFont(u8g2_font_5x8_tf);
-
-            // Collect up to 4 status items to flow across lines.
-            char statusItems[4][32]; // DIR + BRAKE + ENABLE + LD
-            int itemCount = 0;
-
-            // DIR is always first
-            char dirline[32];
-            snprintf(dirline, sizeof(dirline), "%s %s", S().dir, (motor->dirCW ? S().cw : S().ccw));
-            strcpy(statusItems[itemCount], dirline);
-            itemCount++;
-
+            
+            // Separator line
+            disp->drawLine(0, 13, 127, 13);
+            
+            // ============ SPEED BAR (Y: 16-38) ============
+            disp->setFont(u8g2_font_6x12_tf);
+            disp->drawStr(2, 24, "Speed:");
+            
+            // Calculate progress bar (14 blocks)
+            const int BAR_LENGTH = 14;
+            int filledBlocks = 0;
+            if (motor->prof.maxClockHz > 0)
+            {
+                filledBlocks = (motor->currentHz * BAR_LENGTH) / motor->prof.maxClockHz;
+                if (filledBlocks > BAR_LENGTH) filledBlocks = BAR_LENGTH;
+            }
+            
+            // Draw progress bar at Y=27 using custom glyphs
+            SimpleUnicode::drawProgressBar(disp, 2, 27, BAR_LENGTH, filledBlocks);
+            
+            // Speed value (Hz) aligned to the right
+            disp->setFont(u8g2_font_6x12_tf);
+            char hzValue[16];
+            snprintf(hzValue, sizeof(hzValue), "%luHz", (unsigned long)motor->currentHz);
+            int hzWidth = strlen(hzValue) * 6;
+            disp->drawStr(128 - hzWidth - 2, 35, hzValue);
+            
+            // ============ STATUS LINE (Y: 47) ============
+            // Compact states: DIR + BRAKE + LD
+            disp->setFont(u8g2_font_6x12_tf);
+            
+            int statusX = 2;
+            int statusY = 47;
+            
+            // DIR (always shown)
+            disp->drawStr(statusX, statusY, "DIR:");
+            statusX += 24; // Move past "DIR:"
+            
+            // Draw direction arrow
+            if (motor->dirCW)
+                SimpleUnicode::drawArrowRight(disp, statusX, statusY - 8);
+            else
+                SimpleUnicode::drawArrowLeft(disp, statusX, statusY - 8);
+            
+            statusX += 14; // Move past arrow
+            
             // BRAKE (if present)
             if (motor->prof.hasBrake)
             {
-                snprintf(statusItems[itemCount], sizeof(statusItems[itemCount]),
-                         "%s %s", S().brake, (motor->brakeOn ? S().on : S().off));
-                itemCount++;
+                disp->setFont(u8g2_font_6x12_tf);
+                const char *brakeStatus = motor->brakeOn ? "BRK:ON" : "BRK:OFF";
+                disp->drawStr(statusX, statusY, brakeStatus);
+                statusX += strlen(brakeStatus) * 6 + 6;
             }
-
-            // ENABLE (if present)
-            if (motor->prof.hasEnable)
-            {
-                snprintf(statusItems[itemCount], sizeof(statusItems[itemCount]),
-                         "%s %s", S().enable, (motor->enabled ? S().on : S().off));
-                itemCount++;
-            }
-
-            // LD (if present), show as ✓ (OK) or ✗ (ALARM)
+            
+            // LD (if present)
             if (motor->prof.hasLD)
             {
-                const char *ldSymbol = motor->ldAlarm() ? "✗" : "✓";
-                snprintf(statusItems[itemCount], sizeof(statusItems[itemCount]),
-                         "%s: %s", S().ld, ldSymbol);
-                itemCount++;
+                disp->setFont(u8g2_font_6x12_tf);
+                disp->drawStr(statusX, statusY, "LD:");
+                statusX += 18;
+                
+                // Draw check or X mark
+                if (motor->ldAlarm())
+                    SimpleUnicode::drawXMark(disp, statusX, statusY - 8);
+                else
+                    SimpleUnicode::drawCheckMark(disp, statusX, statusY - 8);
             }
-
-            // Flow items with wrapping across lines
-            int currentX = 2;       // Start X
-            int maxLineWidth = 126; // Max width per line
-            int currentLineY = y;   // Start Y
-
-            for (int i = 0; i < itemCount; i++)
-            {
-                int itemWidth = strlen(statusItems[i]) * 5; // 5 px per char at 5x8 font
-
-                // Wrap to next line if it doesn't fit (except first item)
-                if (currentX + itemWidth > maxLineWidth && i > 0)
-                {
-                    currentLineY += 9; // advance line (approx line height)
-                    currentX = 2;
-                }
-
-                // Draw item
-                disp->drawStr(currentX, currentLineY, statusItems[i]);
-
-                // Advance X with spacing
-                currentX += itemWidth + 8;
-            }
-
-            // Footer help/hints aligned at bottom
-            y = currentLineY + 9;
+            
+            // ============ SEPARATOR LINE (Y: 49) ============
+            disp->drawLine(0, 49, 127, 49);
+            
+            // ============ FOOTER (Y: 58) ============
             disp->setFont(u8g2_font_5x8_tf);
-            disp->drawStr(2, 63, S().footer_home);
+            disp->drawStr(2, 58, S().footer_home);
+            
         } while (disp->nextPage());
     }
 
@@ -408,6 +435,7 @@ private:
         items[n++] = motor->dirCW ? S().m_set_ccw : S().m_set_cw;
         if (motor->prof.hasBrake)
             items[n++] = motor->brakeOn ? S().m_brake_off : S().m_brake_on;
+        items[n++] = S().m_autotest;  // Add AutoTest option
         if (pst->getCount() > 0)
             items[n++] = S().m_select_motor;
         items[n++] = S().m_add_motor;
@@ -472,6 +500,12 @@ private:
                     needRedraw = true;
                     return;
                 }
+            }
+            // AutoTest
+            if (menuIndex == c++)
+            {
+                startAutoTest();
+                return;
             }
             if (pst->getCount() > 0)
             {
@@ -1261,6 +1295,228 @@ private:
         } while (disp->nextPage());
     }
 
+    // -------------------- AutoTest Functions --------------------
+    
+    // Initialize and start the AutoTest sequence
+    void startAutoTest()
+    {
+        // Save current state
+        autoTestOriginalHz = motor->targetHz;
+        autoTestOriginalDir = motor->dirCW;
+        
+        // Initialize test state
+        autoTestCycle = 0;
+        autoTestPhase = 0;
+        autoTestAborted = false;
+        autoTestStartTime = millis();
+        
+        // Stop motor if running
+        if (motor->running)
+            motor->stop();
+        
+        // Set to CW direction for first phase
+        motor->setDirCW(true);
+        
+        // Enter autotest state
+        state = AUTOTEST;
+        needRedraw = true;
+        
+#if DEBUG_MOTOR
+        Serial.println("[AutoTest] Starting test sequence");
+#endif
+    }
+    
+    // Handle AutoTest execution and display
+    void handleAutoTest()
+    {
+        unsigned long elapsed = millis() - autoTestStartTime;
+        
+        // LEFT button to abort
+        if (btn->leftPressed())
+        {
+            autoTestAborted = true;
+            motor->stop();
+            motor->targetHz = autoTestOriginalHz;
+            motor->setDirCW(autoTestOriginalDir);
+            state = HOME;
+            needRedraw = true;
+#if DEBUG_MOTOR
+            Serial.println("[AutoTest] Aborted by user");
+#endif
+            return;
+        }
+        
+        // Check LD alarm if available (safety stop)
+        if (motor->prof.hasLD && motor->ldAlarm())
+        {
+            motor->stop();
+            state = HOME;
+            needRedraw = true;
+#if DEBUG_MOTOR
+            Serial.println("[AutoTest] ALARM detected - Test stopped");
+#endif
+            return;
+        }
+        
+        // Phase timing and transitions
+        bool phaseChanged = false;
+        
+        switch (autoTestPhase)
+        {
+        case 0: // CW direction test (8 seconds)
+            if (elapsed < 3000)
+            {
+                // 0-3s: Low speed (30%)
+                uint32_t lowSpeed = (motor->prof.maxClockHz * 30) / 100;
+                if (!motor->running || motor->targetHz != lowSpeed)
+                {
+                    motor->targetHz = lowSpeed;
+                    motor->start();
+                    needRedraw = true;
+                }
+            }
+            else if (elapsed < 8000)
+            {
+                // 3-8s: Normal speed (60%)
+                uint32_t normalSpeed = (motor->prof.maxClockHz * 60) / 100;
+                if (motor->targetHz != normalSpeed)
+                {
+                    motor->targetHz = normalSpeed;
+                    motor->setClock(normalSpeed);
+                    needRedraw = true;
+                }
+            }
+            else
+            {
+                // Phase complete - pause 1s
+                motor->stop();
+                autoTestPhase = 1;
+                autoTestStartTime = millis();
+                phaseChanged = true;
+                needRedraw = true;
+            }
+            break;
+            
+        case 1: // Pause 1 second
+            if (elapsed >= 1000)
+            {
+                // Change to CCW
+                motor->setDirCW(false);
+                autoTestPhase = 2;
+                autoTestStartTime = millis();
+                phaseChanged = true;
+                needRedraw = true;
+            }
+            break;
+            
+        case 2: // CCW direction test (8 seconds)
+            if (elapsed < 3000)
+            {
+                // 0-3s: Low speed (30%)
+                uint32_t lowSpeed = (motor->prof.maxClockHz * 30) / 100;
+                if (!motor->running || motor->targetHz != lowSpeed)
+                {
+                    motor->targetHz = lowSpeed;
+                    motor->start();
+                    needRedraw = true;
+                }
+            }
+            else if (elapsed < 8000)
+            {
+                // 3-8s: Normal speed (60%)
+                uint32_t normalSpeed = (motor->prof.maxClockHz * 60) / 100;
+                if (motor->targetHz != normalSpeed)
+                {
+                    motor->targetHz = normalSpeed;
+                    motor->setClock(normalSpeed);
+                    needRedraw = true;
+                }
+            }
+            else
+            {
+                // Phase complete - pause 2s
+                motor->stop();
+                autoTestPhase = 3;
+                autoTestStartTime = millis();
+                phaseChanged = true;
+                needRedraw = true;
+            }
+            break;
+            
+        case 3: // Pause 2 seconds between cycles
+            if (elapsed >= 2000)
+            {
+                autoTestCycle++;
+                if (autoTestCycle >= 3)
+                {
+                    // Test complete - restore and exit
+                    motor->targetHz = autoTestOriginalHz;
+                    motor->setDirCW(autoTestOriginalDir);
+                    state = HOME;
+                    needRedraw = true;
+#if DEBUG_MOTOR
+                    Serial.println("[AutoTest] Test completed successfully");
+#endif
+                    return;
+                }
+                else
+                {
+                    // Start next cycle
+                    motor->setDirCW(true);
+                    autoTestPhase = 0;
+                    autoTestStartTime = millis();
+                    phaseChanged = true;
+                    needRedraw = true;
+                }
+            }
+            break;
+        }
+        
+        // Draw AutoTest screen
+        if (needRedraw || phaseChanged)
+        {
+            needRedraw = false;
+            
+            disp->firstPage();
+            do
+            {
+                // Header
+                disp->setFont(u8g2_font_6x12_tf);
+                disp->drawBox(0, 0, 128, 13);
+                disp->setDrawColor(0);
+                disp->drawStr(2, 10, "AUTO TEST");
+                disp->setDrawColor(1);
+                
+                // Cycle info
+                char cycleInfo[32];
+                snprintf(cycleInfo, sizeof(cycleInfo), "Cycle: %d/3", autoTestCycle + 1);
+                disp->setFont(u8g2_font_6x12_tf);
+                disp->drawStr(2, 26, cycleInfo);
+                
+                // Phase info
+                const char *phaseStr = "";
+                switch (autoTestPhase)
+                {
+                case 0: phaseStr = "Phase: CW Test"; break;
+                case 1: phaseStr = "Phase: Pause 1s"; break;
+                case 2: phaseStr = "Phase: CCW Test"; break;
+                case 3: phaseStr = "Phase: Pause 2s"; break;
+                }
+                disp->drawStr(2, 38, phaseStr);
+                
+                // Speed info
+                char speedInfo[32];
+                snprintf(speedInfo, sizeof(speedInfo), "Speed: %lu Hz", (unsigned long)motor->currentHz);
+                disp->drawStr(2, 50, speedInfo);
+                
+                // Footer
+                disp->setFont(u8g2_font_5x8_tf);
+                disp->drawStr(2, 62, "LEFT to cancel");
+                
+            } while (disp->nextPage());
+        }
+    }
+
     // -------------------- Dependencies & State --------------------
     U8G2 *disp = nullptr;
     Buttons *btn = nullptr;
@@ -1278,4 +1534,12 @@ private:
     char editName[20] = {0};
     int editPos = 0;
     bool wizardSaveChoice = true;
+
+    // AutoTest state variables
+    unsigned long autoTestStartTime = 0;
+    int autoTestCycle = 0;          // 0, 1, 2 (3 cycles total)
+    int autoTestPhase = 0;          // 0=CW, 1=pause1s, 2=CCW, 3=pause2s
+    uint32_t autoTestOriginalHz = 0;
+    bool autoTestOriginalDir = true;
+    bool autoTestAborted = false;
 };
