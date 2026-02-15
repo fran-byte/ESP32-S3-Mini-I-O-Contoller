@@ -25,8 +25,8 @@ static const Strings STR_ES = {
 
     // ---------------- Menu ----------------
     "CONFIGURACION",                                 // menu
-    "Arrancar",                                      // m_start
-    "Parar",                                         // m_stop
+    "Arrancar MOTOR",                                // m_start
+    "Parar MOTOR",                                   // m_stop
     "DIR = CCW",                                     // m_set_ccw
     "DIR = CW",                                      // m_set_cw
     "Freno ON",                                      // m_brake_on
