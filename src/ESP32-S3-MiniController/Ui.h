@@ -431,11 +431,11 @@ private:
     {
         const char *items[12];
         int n = 0;
+        items[n++] = S().m_autotest;  // ← AutoTest PRIMERO
         items[n++] = motor->running ? S().m_stop : S().m_start;
         items[n++] = motor->dirCW ? S().m_set_ccw : S().m_set_cw;
         if (motor->prof.hasBrake)
             items[n++] = motor->brakeOn ? S().m_brake_off : S().m_brake_on;
-        items[n++] = S().m_autotest;  // Add AutoTest option
         if (pst->getCount() > 0)
             items[n++] = S().m_select_motor;
         items[n++] = S().m_add_motor;
