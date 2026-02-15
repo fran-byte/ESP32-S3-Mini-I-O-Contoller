@@ -83,6 +83,9 @@ public:
         case ABOUT:
             handleAbout();
             break;
+        case MANUAL:
+            handleManual();
+            break;
         case DIAG:
             handleDiag();
             break;
@@ -128,6 +131,7 @@ private:
         SETTINGS_LANG,
         SETTINGS_TELE,
         ABOUT,
+        MANUAL,
         DIAG,
         AUTOTEST
     };
@@ -427,63 +431,54 @@ private:
 
     // Main menu: build dynamic items according to runtime (running, brake presence, profiles).
     // Short SELECT executes action, long SELECT is intentionally disabled in menus.
-// Main menu: build dynamic items according to runtime (running, brake presence, profiles).
-// Short RIGHT executes action, LEFT goes back to HOME.
     void handleMenu()
     {
         const char *items[12];
         int n = 0;
-        items[n++] = S().m_autotest;  // AutoTest FIRST
         items[n++] = motor->running ? S().m_stop : S().m_start;
         items[n++] = motor->dirCW ? S().m_set_ccw : S().m_set_cw;
         if (motor->prof.hasBrake)
             items[n++] = motor->brakeOn ? S().m_brake_off : S().m_brake_on;
+        items[n++] = S().m_autotest;  // Add AutoTest option
         if (pst->getCount() > 0)
             items[n++] = S().m_select_motor;
         items[n++] = S().m_add_motor;
         if (pst->getCount() > 0)
             items[n++] = S().m_delete_active;
         items[n++] = S().m_settings;
+        items[n++] = S().m_manual;
         items[n++] = S().m_about;
-    
+
         // Navigation
         if (btn->upPressed() && menuIndex > 0)
         {
             menuIndex--;
             needRedraw = true;
         }
-    
+
         if (btn->downPressed() && menuIndex < n - 1)
         {
             menuIndex++;
             needRedraw = true;
         }
-    
+
         // LEFT: Back to HOME
         if (btn->leftPressed())
         {
-    #if DEBUG_BUTTONS
+#if DEBUG_BUTTONS
             Serial.println("[UI] LEFT: Back to HOME from MENU");
-    #endif
+#endif
             state = HOME;
             needRedraw = true;
             return;
         }
-    
-        // SHORT RIGHT: handle action by matching index in order
+
+        // Short RIGHT: handle action by matching index in order
         if (btn->rightPressed())
         {
             delay(100); // small UX pause
             int c = 0;
-    
-            // AutoTest (first option)
-            if (menuIndex == c++)
-            {
-                startAutoTest();
-                return;
-            }
-            
-            // Start/Stop
+
             if (menuIndex == c++)
             {
                 if (motor->running)
@@ -494,8 +489,6 @@ private:
                 needRedraw = true;
                 return;
             }
-            
-            // Set DIR = CW/CCW
             if (menuIndex == c++)
             {
                 motor->toggleDir();
@@ -503,8 +496,6 @@ private:
                 needRedraw = true;
                 return;
             }
-            
-            // Brake ON/OFF (if present)
             if (motor->prof.hasBrake)
             {
                 if (menuIndex == c++)
@@ -515,8 +506,12 @@ private:
                     return;
                 }
             }
-            
-            // Select Motor (if profiles exist)
+            // AutoTest
+            if (menuIndex == c++)
+            {
+                startAutoTest();
+                return;
+            }
             if (pst->getCount() > 0)
             {
                 if (menuIndex == c++)
@@ -527,15 +522,11 @@ private:
                     return;
                 }
             }
-            
-            // Add Motor
             if (menuIndex == c++)
             {
                 enterAddWizard();
                 return;
             }
-            
-            // Delete Active (if profiles exist)
             if (pst->getCount() > 0)
             {
                 if (menuIndex == c++)
@@ -551,8 +542,6 @@ private:
                     return;
                 }
             }
-            
-            // Settings
             if (menuIndex == c++)
             {
                 state = SETTINGS;
@@ -560,8 +549,13 @@ private:
                 needRedraw = true;
                 return;
             }
-            
-            // About
+            if (menuIndex == c++)
+            {
+                state = MANUAL;
+                manualPage = 0;
+                needRedraw = true;
+                return;
+            }
             if (menuIndex == c++)
             {
                 state = ABOUT;
@@ -569,7 +563,7 @@ private:
                 return;
             }
         }
-    
+
         if (needRedraw)
         {
             drawMenuList(items, n);
@@ -1313,6 +1307,214 @@ private:
         } while (disp->nextPage());
     }
 
+    // -------------------- Manual Functions --------------------
+    
+    // Display user manual with multiple pages
+    void handleManual()
+    {
+        const int TOTAL_PAGES = (lang == LANG_EN) ? 5 : 5;  // 5 pages in both languages
+        
+        // Navigation
+        if (btn->upPressed() && manualPage > 0)
+        {
+            manualPage--;
+            needRedraw = true;
+        }
+        
+        if (btn->downPressed() && manualPage < TOTAL_PAGES - 1)
+        {
+            manualPage++;
+            needRedraw = true;
+        }
+        
+        // LEFT to exit
+        if (btn->leftPressed())
+        {
+            state = MENU;
+            menuIndex = 0;
+            needRedraw = true;
+            return;
+        }
+        
+        if (!needRedraw)
+            return;
+            
+        needRedraw = false;
+        
+        disp->firstPage();
+        do
+        {
+            // Header
+            disp->setFont(u8g2_font_6x12_tf);
+            disp->drawBox(0, 0, 128, 13);
+            disp->setDrawColor(0);
+            char header[32];
+            snprintf(header, sizeof(header), "%s %d/%d", S().manual_title, manualPage + 1, TOTAL_PAGES);
+            disp->drawStr(2, 10, header);
+            disp->setDrawColor(1);
+            
+            // Content (depends on language and page)
+            disp->setFont(u8g2_font_5x8_tf);
+            int y = 22;
+            
+            if (lang == LANG_EN)
+            {
+                switch (manualPage)
+                {
+                case 0: // Page 1 - Basic Controls
+                    disp->drawStr(2, y, "BASIC CONTROLS:");
+                    y += 10;
+                    disp->drawStr(2, y, "UP/DN: Change speed");
+                    y += 9;
+                    disp->drawStr(2, y, "RIGHT: Open menu");
+                    y += 9;
+                    disp->drawStr(2, y, "LEFT: Diagnostics");
+                    y += 9;
+                    disp->drawStr(2, y, "In Menu: Use RIGHT");
+                    y += 9;
+                    disp->drawStr(2, y, "to select options");
+                    break;
+                    
+                case 1: // Page 2 - Menu Options
+                    disp->drawStr(2, y, "MENU OPTIONS:");
+                    y += 10;
+                    disp->drawStr(2, y, "Start/Stop motor");
+                    y += 9;
+                    disp->drawStr(2, y, "Change direction");
+                    y += 9;
+                    disp->drawStr(2, y, "Brake control");
+                    y += 9;
+                    disp->drawStr(2, y, "Auto Test");
+                    y += 9;
+                    disp->drawStr(2, y, "Select profiles");
+                    break;
+                    
+                case 2: // Page 3 - Auto Test
+                    disp->drawStr(2, y, "AUTO TEST:");
+                    y += 10;
+                    disp->drawStr(2, y, "3 cycles, CW+CCW");
+                    y += 9;
+                    disp->drawStr(2, y, "Tests low & normal");
+                    y += 9;
+                    disp->drawStr(2, y, "speed in both");
+                    y += 9;
+                    disp->drawStr(2, y, "directions. Stops");
+                    y += 9;
+                    disp->drawStr(2, y, "on LD alarm.");
+                    break;
+                    
+                case 3: // Page 4 - Profiles
+                    disp->drawStr(2, y, "PROFILES:");
+                    y += 10;
+                    disp->drawStr(2, y, "Add Motor: Create");
+                    y += 9;
+                    disp->drawStr(2, y, "new profile with");
+                    y += 9;
+                    disp->drawStr(2, y, "custom settings");
+                    y += 9;
+                    disp->drawStr(2, y, "Select Motor: Pick");
+                    y += 9;
+                    disp->drawStr(2, y, "from saved profiles");
+                    break;
+                    
+                case 4: // Page 5 - Safety
+                    disp->drawStr(2, y, "SAFETY:");
+                    y += 10;
+                    disp->drawStr(2, y, "LD: Alarm signal");
+                    y += 9;
+                    disp->drawStr(2, y, "FG: RPM feedback");
+                    y += 9;
+                    disp->drawStr(2, y, "If FG fails, speed");
+                    y += 9;
+                    disp->drawStr(2, y, "auto-reduces to");
+                    y += 9;
+                    disp->drawStr(2, y, "25% for safety.");
+                    break;
+                }
+            }
+            else // Spanish
+            {
+                switch (manualPage)
+                {
+                case 0: // Página 1 - Controles Básicos
+                    disp->drawStr(2, y, "CONTROLES BASICOS:");
+                    y += 10;
+                    disp->drawStr(2, y, "UP/DN: Cambiar vel.");
+                    y += 9;
+                    disp->drawStr(2, y, "RIGHT: Abrir menu");
+                    y += 9;
+                    disp->drawStr(2, y, "LEFT: Diagnostico");
+                    y += 9;
+                    disp->drawStr(2, y, "En Menu: Usar RIGHT");
+                    y += 9;
+                    disp->drawStr(2, y, "para elegir opcion");
+                    break;
+                    
+                case 1: // Página 2 - Opciones del Menú
+                    disp->drawStr(2, y, "OPCIONES MENU:");
+                    y += 10;
+                    disp->drawStr(2, y, "Arrancar/Parar");
+                    y += 9;
+                    disp->drawStr(2, y, "Cambiar direccion");
+                    y += 9;
+                    disp->drawStr(2, y, "Control de freno");
+                    y += 9;
+                    disp->drawStr(2, y, "Auto Test");
+                    y += 9;
+                    disp->drawStr(2, y, "Seleccionar perfil");
+                    break;
+                    
+                case 2: // Página 3 - Auto Test
+                    disp->drawStr(2, y, "AUTO TEST:");
+                    y += 10;
+                    disp->drawStr(2, y, "3 ciclos, CW+CCW");
+                    y += 9;
+                    disp->drawStr(2, y, "Prueba velocidad");
+                    y += 9;
+                    disp->drawStr(2, y, "baja y normal en");
+                    y += 9;
+                    disp->drawStr(2, y, "ambas direcciones.");
+                    y += 9;
+                    disp->drawStr(2, y, "Para si hay alarma.");
+                    break;
+                    
+                case 3: // Página 4 - Perfiles
+                    disp->drawStr(2, y, "PERFILES:");
+                    y += 10;
+                    disp->drawStr(2, y, "Anadir Motor: Crear");
+                    y += 9;
+                    disp->drawStr(2, y, "perfil con ajustes");
+                    y += 9;
+                    disp->drawStr(2, y, "personalizados");
+                    y += 9;
+                    disp->drawStr(2, y, "Select Motor: Elegir");
+                    y += 9;
+                    disp->drawStr(2, y, "perfil guardado");
+                    break;
+                    
+                case 4: // Página 5 - Seguridad
+                    disp->drawStr(2, y, "SEGURIDAD:");
+                    y += 10;
+                    disp->drawStr(2, y, "LD: Senal de alarma");
+                    y += 9;
+                    disp->drawStr(2, y, "FG: Realimentacion");
+                    y += 9;
+                    disp->drawStr(2, y, "Si FG falla, la");
+                    y += 9;
+                    disp->drawStr(2, y, "velocidad se reduce");
+                    y += 9;
+                    disp->drawStr(2, y, "al 25% por seguridad");
+                    break;
+                }
+            }
+            
+            // Footer
+            disp->setFont(u8g2_font_5x8_tf);
+            disp->drawStr(2, 62, S().manual_hint);
+            
+        } while (disp->nextPage());
+    }
+
     // -------------------- AutoTest Functions --------------------
     
     // Initialize and start the AutoTest sequence
@@ -1545,6 +1747,7 @@ private:
     bool needRedraw = true;
     int menuIndex = 0;
     int menuScroll = 0;
+    int manualPage = 0;
     Language lang = LANG_ES;
 
     // Wizard temp storage and editor buffers

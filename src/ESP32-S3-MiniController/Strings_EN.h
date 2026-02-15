@@ -36,6 +36,7 @@ struct Strings
     const char *m_add_motor;      // Start add-motor wizard
     const char *m_delete_active;  // Delete currently active profile
     const char *m_settings;       // Open settings submenu
+    const char *m_manual;         // Open user manual
     const char *m_about;          // Open about screen
     const char *m_back;           // Go back one level
     const char *footer_menu;      // Footer/help for menu navigation
@@ -77,6 +78,10 @@ struct Strings
     const char *about_version;    // Version label
     const char *about_build;      // Build label
 
+    // ---------------- Manual ----------------------
+    const char *manual_title;     // Manual title
+    const char *manual_hint;      // Navigation hint
+
     // ---------------- Diagnostics -----------------
     const char *diag_title;       // Diagnostics title
     const char *diag_hint;        // Hint to exit diagnostics
@@ -103,8 +108,8 @@ static const Strings STR_EN = {
 
     // ---------------- Menu ----------------
     "SETTINGS",                                      // menu
-    "Start Motor",                                   // m_start
-    "Stop Motor",                                    // m_stop
+    "Start",                                         // m_start
+    "Stop",                                          // m_stop
     "Set DIR = CCW",                                 // m_set_ccw
     "Set DIR = CW",                                  // m_set_cw
     "Brake ON",                                      // m_brake_on
@@ -114,6 +119,7 @@ static const Strings STR_EN = {
     "Add Motor",                                     // m_add_motor
     "Delete Active",                                 // m_delete_active
     "Language/Telemetry",                            // m_settings
+    "Manual",                                        // m_manual
     "About",                                         // m_about
     "Back",                                          // m_back
     "UP/DN=Move L=Back R=Select",                      // footer_menu
@@ -154,6 +160,10 @@ static const Strings STR_EN = {
     "Author: Fran-Byte",                             // about_author
     "Version: v2.0",                                 // about_version
     "Build:",                                        // about_build
+
+    // ---------------- Manual ---------------
+    "MANUAL",                                        // manual_title
+    "UP/DN=Page L=Back",                            // manual_hint
 
     // ---------------- Diagnostics ------------
     "DIAGNOSTICS",                                   // diag_title

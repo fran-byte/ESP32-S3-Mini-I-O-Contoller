@@ -25,8 +25,8 @@ static const Strings STR_ES = {
 
     // ---------------- Menu ----------------
     "CONFIGURACION",                                 // menu
-    "Arrancar Motor",                                // m_start
-    "Parar Motor",                                         // m_stop
+    "Arrancar",                                      // m_start
+    "Parar",                                         // m_stop
     "DIR = CCW",                                     // m_set_ccw
     "DIR = CW",                                      // m_set_cw
     "Freno ON",                                      // m_brake_on
@@ -36,6 +36,7 @@ static const Strings STR_ES = {
     "Anadir Motor",                                  // m_add_motor
     "Borrar Activo",                                 // m_delete_active
     "Lenguaje/Telemetria",                           // m_settings
+    "Manual",                                        // m_manual
     "Acerca de",                                     // m_about
     "Atras",                                         // m_back
     "UP/DN=Mover L=Atras R=Seleccionar",                // footer_menu
@@ -76,6 +77,10 @@ static const Strings STR_ES = {
     "Autor: Fran-Byte",                              // about_author
     "Version: v2.0",                                 // about_version
     "Build:",                                        // about_build
+
+    // ---------------- Manual ---------------
+    "MANUAL",                                        // manual_title
+    "UP/DN=Pagina L=Atras",                         // manual_hint
 
     // ---------------- Diagnostics ----------------
     "DIAGNOSTICO",                                   // diag_title
