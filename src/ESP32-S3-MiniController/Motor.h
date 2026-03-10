@@ -268,27 +268,48 @@ public:
     }
 
     // Set absolute direction (CW = true, CCW = false) and push to hardware.
+    // If the motor is running, the clock is cut to 0 first, the direction pin is
+    // changed, and the ramp restarts from zero so the motor accelerates cleanly
+    // in the new direction instead of jumping mid-speed.
     void setDirCW(bool cw)
     {
         dirCW = cw;
-        applyOutputs();
+
+        if (running)
+        {
+            // Cut output immediately before flipping direction
+            setClock(0);
+            applyOutputs();
+
+            // Restart ramp from zero toward current targetHz
+            rampCurrentHz = 0;
+            rampActive    = true;
+            lastRampTick  = millis();
+
+            // Re-arm start timeout if profile has FG
+            if (prof.hasFG)
+            {
+                startTimeoutActive = true;
+                startTimeoutStart  = millis();
+                startTimeoutFired  = false;
+            }
+        }
+        else
+        {
+            applyOutputs();
+        }
 
 #if DEBUG_MOTOR
         Serial.print("Direction set to ");
-        Serial.println(cw ? "CW" : "CCW");
+        Serial.print(cw ? "CW" : "CCW");
+        Serial.println(running ? " (ramp restarted)" : "");
 #endif
     }
 
-    // Toggle direction and push to hardware.
+    // Toggle direction — delegates to setDirCW so ramp-restart logic applies.
     void toggleDir()
     {
-        dirCW = !dirCW;
-        applyOutputs();
-
-#if DEBUG_MOTOR
-        Serial.print("Direction toggled to ");
-        Serial.println(dirCW ? "CW" : "CCW");
-#endif
+        setDirCW(!dirCW);
     }
 
     // Toggle brake if available in the profile.
