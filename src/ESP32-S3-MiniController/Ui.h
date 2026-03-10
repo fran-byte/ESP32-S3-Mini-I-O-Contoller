@@ -24,6 +24,17 @@ public:
         d.begin();
         drawIntro();
         lang = motor->getLanguage();
+
+        // First boot: no admin password set → enter password setup wizard.
+        if (!pst->hasAdminPassword())
+        {
+            memset(adminPwBuf, 0, sizeof(adminPwBuf));
+            memset(adminConfirmBuf, 0, sizeof(adminConfirmBuf));
+            adminPwPos   = 0;
+            adminMismatch = false;
+            state        = ADMIN_SET_PW;
+            needRedraw   = true;
+        }
     }
 
     // Change current language and persist via MotorRuntime.
@@ -92,6 +103,30 @@ public:
         case AUTOTEST:
             handleAutoTest();
             break;
+        case ADMIN_SET_PW:
+        case ADMIN_CONFIRM_PW:
+            needRedraw = true;  // force redraw every frame for blinking cursor
+            handleAdminSetPassword();
+            break;
+        case ADMIN_LOGIN:
+            needRedraw = true;  // force redraw every frame for blinking cursor
+            handleAdminLogin();
+            break;
+        case ADMIN_PROFILE_MENU:
+            handleAdminProfileMenu();
+            break;
+        case ADMIN_DELETE_LIST:
+            handleAdminDeleteList();
+            break;
+        case USER_PANEL:
+            handleUserPanel();
+            break;
+        case USER_DELETE_LIST:
+            handleUserDeleteList();
+            break;
+        case CONFIRM:
+            handleConfirm();
+            break;
         }
     }
 
@@ -133,7 +168,18 @@ private:
         ABOUT,
         MANUAL,
         DIAG,
-        AUTOTEST
+        AUTOTEST,
+        // ---- Admin password setup (first boot) ----
+        ADMIN_SET_PW,       // Enter new admin password for the first time
+        ADMIN_CONFIRM_PW,   // Confirm the new admin password
+        // ---- Admin login (for protected actions) ----
+        ADMIN_LOGIN,        // Enter password to authenticate as admin
+        // ---- Admin profile management ----
+        ADMIN_PROFILE_MENU, // Admin panel menu (add/delete/mode)
+        ADMIN_DELETE_LIST,  // Admin delete submenu: all profiles
+        USER_PANEL,         // User panel menu (add/delete/mode)
+        USER_DELETE_LIST,   // User delete submenu: only [U] profiles
+        CONFIRM             // Generic yes/no confirmation screen
     };
 
     // Resolve the current string table based on language.
@@ -241,6 +287,14 @@ private:
             disp->setFont(u8g2_font_6x12_tf);
             disp->drawStr(2, 24, "Speed:");
             
+            // Admin/User session mode indicator — top right, next to Speed label
+            {
+                const char *badge = adminSessionActive ? "[A]" : "[U]";
+                disp->setFont(u8g2_font_5x8_tf);
+                disp->drawStr(128 - 16, 24, badge);
+                disp->setFont(u8g2_font_6x12_tf);
+            }
+            
             // Calculate progress bar (14 blocks)
             const int BAR_LENGTH = 14;
             int filledBlocks = 0;
@@ -307,7 +361,16 @@ private:
             
             // ============ FOOTER (Y: 58) ============
             disp->setFont(u8g2_font_5x8_tf);
-            disp->drawStr(2, 58, S().footer_home);
+
+            // If a start-timeout fired, show stall warning instead of normal footer
+            if (motor->startTimeoutFired)
+            {
+                disp->drawStr(2, 58, (lang == LANG_EN) ? "! STALL / NO RPM !" : "! PARADO / SIN RPM !");
+            }
+            else
+            {
+                disp->drawStr(2, 58, S().footer_home);
+            }
             
         } while (disp->nextPage());
     }
@@ -370,8 +433,12 @@ private:
         }
     }
 
+    // Helper: returns "[A]" or "[U]" depending on current session mode.
+    const char *modeBadge() const { return adminSessionActive ? "[A]" : "[U]"; }
+
     // Render a generic, scrollable, framed menu list with a header and footer hints.
-    void drawMenuList(const char **items, int n)
+    // Title is explicit so each screen can show its own label + mode badge.
+    void drawMenuList(const char **items, int n, const char *title = nullptr, const char *footer = nullptr, int selectedIndex = -1)
     {
         if (n == 0)
             return;
@@ -386,19 +453,31 @@ private:
             // Header bar with rounded background
             disp->drawRBox(4, 4, 120, 13, 2);
             disp->setDrawColor(0);
-            disp->drawStr(6, 14, S().menu);
+
+            // Draw title (left side)
+            const char *t = title ? title : S().menu;
+            disp->drawStr(6, 14, t);
+
+            // Mode badge — right side of header bar, small font
+            disp->setFont(u8g2_font_5x8_tf);
+            disp->drawStr(108, 13, modeBadge());
+            disp->setFont(u8g2_font_6x12_tf);
+
             disp->setDrawColor(1);
 
-            int lineHeight = 10;
-            int maxVisibleLines = 3; // keep small to preserve margins
+            // If footer is explicitly "", skip it and use the extra space for a 4th item row
+            bool showFooter = !(footer && footer[0] == '\0');
+            int lineHeight     = 10;
+            int maxVisibleLines = showFooter ? 3 : 4;
+            int sel = (selectedIndex >= 0) ? selectedIndex : menuIndex;
 
             // Keep scroll window covering the selected index
-            if (menuIndex < menuScroll)
-                menuScroll = menuIndex;
-            if (menuIndex >= menuScroll + maxVisibleLines)
-                menuScroll = menuIndex - maxVisibleLines + 1;
+            if (sel < menuScroll)
+                menuScroll = sel;
+            if (sel >= menuScroll + maxVisibleLines)
+                menuScroll = sel - maxVisibleLines + 1;
 
-            int startY = 28; // content Y origin
+            int startY = 28;
 
             for (int i = 0; i < maxVisibleLines; i++)
             {
@@ -408,9 +487,8 @@ private:
 
                 int y = startY + (i * lineHeight);
 
-                if (idx == menuIndex)
+                if (idx == sel)
                 {
-                    // Highlight the selected row
                     disp->drawRBox(6, y - 8, 116, lineHeight, 2);
                     disp->setDrawColor(0);
                     disp->drawStr(8, y, items[idx]);
@@ -422,9 +500,12 @@ private:
                 }
             }
 
-            // Footer hints
-            disp->setFont(u8g2_font_5x8_tf);
-            disp->drawStr(6, 60, S().footer_menu);
+            // Footer hints (omitted when footer="")
+            if (showFooter)
+            {
+                disp->setFont(u8g2_font_5x8_tf);
+                disp->drawStr(6, 60, footer ? footer : S().footer_menu);
+            }
 
         } while (disp->nextPage());
     }
@@ -433,140 +514,77 @@ private:
     // Short SELECT executes action, long SELECT is intentionally disabled in menus.
     void handleMenu()
     {
-        const char *items[12];
+        const char *items[7];
         int n = 0;
         items[n++] = motor->running ? S().m_stop : S().m_start;
         items[n++] = motor->dirCW ? S().m_set_ccw : S().m_set_cw;
         if (motor->prof.hasBrake)
             items[n++] = motor->brakeOn ? S().m_brake_off : S().m_brake_on;
-        items[n++] = S().m_autotest;  // Add AutoTest option
+        items[n++] = S().m_autotest;
         if (pst->getCount() > 0)
             items[n++] = S().m_select_motor;
-        items[n++] = S().m_add_motor;
-        if (pst->getCount() > 0)
-            items[n++] = S().m_delete_active;
-        items[n++] = S().m_settings;
-        items[n++] = S().m_manual;
-        items[n++] = S().m_about;
+        items[n++] = adminSessionActive
+            ? ((lang == LANG_EN) ? "Admin Panel" : "Panel Admin")
+            : ((lang == LANG_EN) ? "User Panel"  : "Panel User");
 
-        // Navigation
-        if (btn->upPressed() && menuIndex > 0)
-        {
-            menuIndex--;
-            needRedraw = true;
-        }
+        if (btn->upPressed() && menuIndex > 0)        { menuIndex--; needRedraw = true; }
+        if (btn->downPressed() && menuIndex < n - 1)  { menuIndex++; needRedraw = true; }
 
-        if (btn->downPressed() && menuIndex < n - 1)
-        {
-            menuIndex++;
-            needRedraw = true;
-        }
-
-        // LEFT: Back to HOME
         if (btn->leftPressed())
         {
-#if DEBUG_BUTTONS
-            Serial.println("[UI] LEFT: Back to HOME from MENU");
-#endif
-            state = HOME;
-            needRedraw = true;
-            return;
+            state = HOME; needRedraw = true; return;
         }
 
-        // Short RIGHT: handle action by matching index in order
         if (btn->rightPressed())
         {
-            delay(100); // small UX pause
+            delay(100);
             int c = 0;
 
-            if (menuIndex == c++)
+            if (menuIndex == c++) // Start / Stop
             {
-                if (motor->running)
-                    motor->stop();
-                else
-                    motor->start();
-                state = HOME;
-                needRedraw = true;
-                return;
+                if (motor->running) motor->stop(); else motor->start();
+                state = HOME; needRedraw = true; return;
             }
-            if (menuIndex == c++)
+            if (menuIndex == c++) // Direction
             {
                 motor->toggleDir();
-                state = HOME;
-                needRedraw = true;
-                return;
+                state = HOME; needRedraw = true; return;
             }
             if (motor->prof.hasBrake)
             {
-                if (menuIndex == c++)
+                if (menuIndex == c++) // Brake
                 {
                     motor->toggleBrake();
-                    state = HOME;
-                    needRedraw = true;
-                    return;
+                    state = HOME; needRedraw = true; return;
                 }
             }
-            // AutoTest
-            if (menuIndex == c++)
+            if (menuIndex == c++) // AutoTest
             {
-                startAutoTest();
-                return;
+                startAutoTest(); return;
             }
             if (pst->getCount() > 0)
             {
-                if (menuIndex == c++)
+                if (menuIndex == c++) // Select Motor
                 {
                     state = SELECT_MOTOR;
                     menuIndex = pst->getActiveIndex();
-                    needRedraw = true;
-                    return;
+                    menuScroll = 0;
+                    needRedraw = true; return;
                 }
             }
-            if (menuIndex == c++)
+            if (menuIndex == c++) // Panel (Admin or User)
             {
-                enterAddWizard();
-                return;
-            }
-            if (pst->getCount() > 0)
-            {
-                if (menuIndex == c++)
-                {
-                    int idx = pst->getActiveIndex();
-                    pst->remove(idx);
-                    MotorProfile mp;
-                    if (!pst->loadActive(mp))
-                        mp.setDefaults();
-                    motor->applyProfile(mp);
-                    state = HOME;
-                    needRedraw = true;
-                    return;
-                }
-            }
-            if (menuIndex == c++)
-            {
-                state = SETTINGS;
-                menuIndex = 0;
-                needRedraw = true;
-                return;
-            }
-            if (menuIndex == c++)
-            {
-                state = MANUAL;
-                manualPage = 0;
-                needRedraw = true;
-                return;
-            }
-            if (menuIndex == c++)
-            {
-                state = ABOUT;
-                needRedraw = true;
+                if (adminSessionActive)
+                    enterAdminProfilePanel();
+                else
+                    enterUserPanel();
                 return;
             }
         }
 
         if (needRedraw)
         {
-            drawMenuList(items, n);
+            drawMenuList(items, n, S().menu, "");
             needRedraw = false;
         }
     }
@@ -581,16 +599,18 @@ private:
             return;
         }
 
-        // Build list: profile names only (no Back option needed)
-        static char names[MAX_PROFILES][22];
-        static const char *items[MAX_PROFILES];
+        // Build list — ALL profiles, any mode can select any motor
+        char names[MAX_PROFILES][22];
+        const char *items[MAX_PROFILES];
         int n = 0;
 
         for (int i = 0; i < profileCount; i++)
         {
             String nm = pst->nameOf(i);
-            nm.toCharArray(names[i], sizeof(names[i]));
-            items[n++] = names[i];
+            snprintf(names[n], sizeof(names[n]), "%s [%s]",
+                     nm.c_str(), pst->isAdminProfile(i) ? "A" : "U");
+            items[n] = names[n];
+            n++;
         }
 
         // Navigation
@@ -623,16 +643,17 @@ private:
             return;
         }
 
-        drawMenuList(items, n);
+        drawMenuList(items, n, S().m_select_motor, "");
     }
 
     // Prepare temporary profile and buffers for the Add Profile wizard.
-    void enterAddWizard()
+    void enterAddWizard(State returnTo = HOME)
     {
         memset(&tmp, 0, sizeof(tmp));
         tmp.setDefaults();
         memset(editName, 0, sizeof(editName));
         editPos = 0;
+        wizardReturnState = returnTo;
         state = ADD_NAME;
         needRedraw = true;
     }
@@ -1074,7 +1095,8 @@ private:
             {
                 if (wizardSaveChoice)
                 {
-                    // Save profile to storage and make it active
+                    // Flag follows the current session mode
+                    tmp.isAdminProfile = adminSessionActive;
                     pst->append(tmp);
                     pst->setActive(pst->getCount() - 1);
                     MotorProfile mp;
@@ -1082,7 +1104,7 @@ private:
                     motor->applyProfile(mp);
                 }
                 // If "NO", just exit without saving
-                state = HOME;
+                state = wizardReturnState;
                 needRedraw = true;
                 wizardSaveChoice = true; // reset for next time
                 return;
@@ -1132,7 +1154,7 @@ private:
                 return;
             }
         }
-        drawMenuList(items, n);
+        drawMenuList(items, n, S().s_title, "");
     }
 
     // Language selection (English, Español).
@@ -1148,13 +1170,13 @@ private:
         if (btn->downPressed() && menuIndex < n - 1)
             menuIndex++;
 
-        // LEFT: Back to SETTINGS
+        // LEFT: Back to panel (or SETTINGS if entered from there)
         if (btn->leftPressed())
         {
 #if DEBUG_BUTTONS
-            Serial.println("[UI] LEFT: Back to SETTINGS from SETTINGS_LANG");
+            Serial.println("[UI] LEFT: Back from SETTINGS_LANG");
 #endif
-            state = SETTINGS;
+            state = panelReturnState;
             menuIndex = 0;
             needRedraw = true;
             return;
@@ -1179,7 +1201,7 @@ private:
                 return;
             }
         }
-        drawMenuList(items, n);
+        drawMenuList(items, n, S().s_language, "");
     }
 
     // Telemetry toggle screen (On/Off).
@@ -1195,13 +1217,13 @@ private:
         if (btn->downPressed() && menuIndex < n - 1)
             menuIndex++;
 
-        // LEFT: Back to SETTINGS
+        // LEFT: Back to panel
         if (btn->leftPressed())
         {
 #if DEBUG_BUTTONS
-            Serial.println("[UI] LEFT: Back to SETTINGS from SETTINGS_TELE");
+            Serial.println("[UI] LEFT: Back from SETTINGS_TELE");
 #endif
-            state = SETTINGS;
+            state = panelReturnState;
             menuIndex = 0;
             needRedraw = true;
             return;
@@ -1220,20 +1242,17 @@ private:
         }
 
         // Draw telemetry menu
-        drawMenuList(items, n);
+        drawMenuList(items, n, S().s_telemetry, "");
     }
 
-    // About screen—press LEFT or RIGHT to go back to MENU.
+    // About screen—press LEFT or RIGHT to go back to panel.
     void handleAbout()
     {
         if (btn->leftPressed() || btn->rightPressed())
         {
-            state = MENU;
+            state = panelReturnState;
             menuIndex = 0;
             needRedraw = true;
-#if DEBUG_BUTTONS
-            Serial.println("[UI] Back to MENU from About");
-#endif
             return;
         }
 
@@ -1327,10 +1346,10 @@ private:
             needRedraw = true;
         }
         
-        // LEFT to exit
+        // LEFT to exit back to panel
         if (btn->leftPressed())
         {
-            state = MENU;
+            state = panelReturnState;
             menuIndex = 0;
             needRedraw = true;
             return;
@@ -1353,164 +1372,108 @@ private:
             disp->drawStr(2, 10, header);
             disp->setDrawColor(1);
             
-            // Content (depends on language and page)
+            // Content — font 5x8, baseline starts at y, glyph occupies [y-7 .. y+1]
+            // Screen height = 64. Safe baseline range: 8 .. 62 (glyph fully visible).
             disp->setFont(u8g2_font_5x8_tf);
-            int y = 22;
-            
+            int y   = 20;   // first baseline
+            int spc = 8;    // 8px step: 6 lines land at y=20,28,36,44,52,60 (all within 64px)
+
+            #define MLINE(txt) disp->drawStr(2, y, txt); y += spc;
+
             if (lang == LANG_EN)
             {
                 switch (manualPage)
                 {
-                case 0: // Page 1 - Basic Controls
-                    disp->drawStr(2, y, "BASIC CONTROLS:");
-                    y += 10;
-                    disp->drawStr(2, y, "UP/DN: Change speed");
-                    y += 9;
-                    disp->drawStr(2, y, "RIGHT: Open menu");
-                    y += 9;
-                    disp->drawStr(2, y, "LEFT: Diagnostics");
-                    y += 9;
-                    disp->drawStr(2, y, "In Menu: Use RIGHT");
-                    y += 9;
-                    disp->drawStr(2, y, "to select options");
+                case 0:
+                    MLINE("BASIC CONTROLS:")
+                    MLINE("UP/DN: Change speed")
+                    MLINE("RIGHT: Open menu")
+                    MLINE("LEFT: Diagnostics")
+                    MLINE("In Menu: RIGHT=OK")
+                    MLINE("LEFT=Back")
                     break;
-                    
-                case 1: // Page 2 - Menu Options
-                    disp->drawStr(2, y, "MENU OPTIONS:");
-                    y += 10;
-                    disp->drawStr(2, y, "Start/Stop motor");
-                    y += 9;
-                    disp->drawStr(2, y, "Change direction");
-                    y += 9;
-                    disp->drawStr(2, y, "Brake control");
-                    y += 9;
-                    disp->drawStr(2, y, "Auto Test");
-                    y += 9;
-                    disp->drawStr(2, y, "Select profiles");
+                case 1:
+                    MLINE("MENU OPTIONS:")
+                    MLINE("Start/Stop motor")
+                    MLINE("Change direction")
+                    MLINE("Brake control")
+                    MLINE("Auto Test")
+                    MLINE("Select profiles")
                     break;
-                    
-                case 2: // Page 3 - Auto Test
-                    disp->drawStr(2, y, "AUTO TEST:");
-                    y += 10;
-                    disp->drawStr(2, y, "3 cycles, CW+CCW");
-                    y += 9;
-                    disp->drawStr(2, y, "Tests low & normal");
-                    y += 9;
-                    disp->drawStr(2, y, "speed in both");
-                    y += 9;
-                    disp->drawStr(2, y, "directions. Stops");
-                    y += 9;
-                    disp->drawStr(2, y, "on LD alarm.");
+                case 2:
+                    MLINE("AUTO TEST:")
+                    MLINE("3 cycles, CW+CCW")
+                    MLINE("Tests low & normal")
+                    MLINE("speed in both")
+                    MLINE("directions. Stops")
+                    MLINE("on LD alarm.")
                     break;
-                    
-                case 3: // Page 4 - Profiles
-                    disp->drawStr(2, y, "PROFILES:");
-                    y += 10;
-                    disp->drawStr(2, y, "Add Motor: Create");
-                    y += 9;
-                    disp->drawStr(2, y, "new profile with");
-                    y += 9;
-                    disp->drawStr(2, y, "custom settings");
-                    y += 9;
-                    disp->drawStr(2, y, "Select Motor: Pick");
-                    y += 9;
-                    disp->drawStr(2, y, "from saved profiles");
+                case 3:
+                    MLINE("PROFILES:")
+                    MLINE("Add Motor: Create")
+                    MLINE("new profile with")
+                    MLINE("custom settings")
+                    MLINE("Select Motor: Pick")
+                    MLINE("from saved profiles")
                     break;
-                    
-                case 4: // Page 5 - Safety
-                    disp->drawStr(2, y, "SAFETY:");
-                    y += 10;
-                    disp->drawStr(2, y, "LD: Alarm signal");
-                    y += 9;
-                    disp->drawStr(2, y, "FG: RPM feedback");
-                    y += 9;
-                    disp->drawStr(2, y, "If FG fails, speed");
-                    y += 9;
-                    disp->drawStr(2, y, "auto-reduces to");
-                    y += 9;
-                    disp->drawStr(2, y, "25% for safety.");
+                case 4:
+                    MLINE("SAFETY:")
+                    MLINE("LD: Alarm signal")
+                    MLINE("FG: RPM feedback")
+                    MLINE("If FG fails, speed")
+                    MLINE("auto-reduces to")
+                    MLINE("25% for safety.")
                     break;
                 }
             }
-            else // Spanish
+            else
             {
                 switch (manualPage)
                 {
-                case 0: // Página 1 - Controles Básicos
-                    disp->drawStr(2, y, "CONTROLES BASICOS:");
-                    y += 10;
-                    disp->drawStr(2, y, "UP/DN: Cambiar vel.");
-                    y += 9;
-                    disp->drawStr(2, y, "RIGHT: Abrir menu");
-                    y += 9;
-                    disp->drawStr(2, y, "LEFT: Diagnostico");
-                    y += 9;
-                    disp->drawStr(2, y, "En Menu: Usar RIGHT");
-                    y += 9;
-                    disp->drawStr(2, y, "para elegir opcion");
+                case 0:
+                    MLINE("CONTROLES BASICOS:")
+                    MLINE("UP/DN: Cambiar vel.")
+                    MLINE("RIGHT: Abrir menu")
+                    MLINE("LEFT: Diagnostico")
+                    MLINE("En Menu: RIGHT=OK")
+                    MLINE("LEFT=Atras")
                     break;
-                    
-                case 1: // Página 2 - Opciones del Menú
-                    disp->drawStr(2, y, "OPCIONES MENU:");
-                    y += 10;
-                    disp->drawStr(2, y, "Arrancar/Parar");
-                    y += 9;
-                    disp->drawStr(2, y, "Cambiar direccion");
-                    y += 9;
-                    disp->drawStr(2, y, "Control de freno");
-                    y += 9;
-                    disp->drawStr(2, y, "Auto Test");
-                    y += 9;
-                    disp->drawStr(2, y, "Seleccionar perfil");
+                case 1:
+                    MLINE("OPCIONES MENU:")
+                    MLINE("Arrancar/Parar")
+                    MLINE("Cambiar direccion")
+                    MLINE("Control de freno")
+                    MLINE("Auto Test")
+                    MLINE("Seleccionar perfil")
                     break;
-                    
-                case 2: // Página 3 - Auto Test
-                    disp->drawStr(2, y, "AUTO TEST:");
-                    y += 10;
-                    disp->drawStr(2, y, "3 ciclos, CW+CCW");
-                    y += 9;
-                    disp->drawStr(2, y, "Prueba velocidad");
-                    y += 9;
-                    disp->drawStr(2, y, "baja y normal en");
-                    y += 9;
-                    disp->drawStr(2, y, "ambas direcciones.");
-                    y += 9;
-                    disp->drawStr(2, y, "Para si hay alarma.");
+                case 2:
+                    MLINE("AUTO TEST:")
+                    MLINE("3 ciclos, CW+CCW")
+                    MLINE("Prueba velocidad")
+                    MLINE("baja y normal en")
+                    MLINE("ambas direcciones.")
+                    MLINE("Para si hay alarma.")
                     break;
-                    
-                case 3: // Página 4 - Perfiles
-                    disp->drawStr(2, y, "PERFILES:");
-                    y += 10;
-                    disp->drawStr(2, y, "Anadir Motor: Crear");
-                    y += 9;
-                    disp->drawStr(2, y, "perfil con ajustes");
-                    y += 9;
-                    disp->drawStr(2, y, "personalizados");
-                    y += 9;
-                    disp->drawStr(2, y, "Select Motor: Elegir");
-                    y += 9;
-                    disp->drawStr(2, y, "perfil guardado");
+                case 3:
+                    MLINE("PERFILES:")
+                    MLINE("Anadir Motor: Crear")
+                    MLINE("perfil con ajustes")
+                    MLINE("personalizados")
+                    MLINE("Select Motor: Elegir")
+                    MLINE("perfil guardado")
                     break;
-                    
-                case 4: // Página 5 - Seguridad
-                    disp->drawStr(2, y, "SEGURIDAD:");
-                    y += 10;
-                    disp->drawStr(2, y, "LD: Senal de alarma");
-                    y += 9;
-                    disp->drawStr(2, y, "FG: Realimentacion");
-                    y += 9;
-                    disp->drawStr(2, y, "Si FG falla, la");
-                    y += 9;
-                    disp->drawStr(2, y, "velocidad se reduce");
-                    y += 9;
-                    disp->drawStr(2, y, "al 25% por seguridad");
+                case 4:
+                    MLINE("SEGURIDAD:")
+                    MLINE("LD: Senal de alarma")
+                    MLINE("FG: Realimentacion")
+                    MLINE("Si FG falla, la")
+                    MLINE("velocidad se reduce")
+                    MLINE("al 25% seguridad")
                     break;
                 }
             }
-            
-            // Footer
-            disp->setFont(u8g2_font_5x8_tf);
-            disp->drawStr(2, 62, S().manual_hint);
+
+            #undef MLINE
             
         } while (disp->nextPage());
     }
@@ -1737,7 +1700,632 @@ private:
         }
     }
 
-    // -------------------- Dependencies & State --------------------
+    // -------------------- Admin Password Setup (first boot) --------------------
+
+    // Shared character editor used for password entry (re-uses same cycle as name editor).
+    // Populates adminPwBuf (SET_PW step) or adminConfirmBuf (CONFIRM_PW step).
+    void handleAdminSetPassword()
+    {
+        const char END_MARKER = 0x7F;
+        char *buf    = (state == ADMIN_SET_PW) ? adminPwBuf : adminConfirmBuf;
+        int  maxLen  = ADMIN_PW_MAX_LEN;
+
+        // UP / DOWN: cycle through A-Z, 0-9, END
+        if (btn->upPressed())
+        {
+            if (buf[adminPwPos] == 0)         buf[adminPwPos] = 'A';
+            else if (buf[adminPwPos] == 'Z')  buf[adminPwPos] = '0';
+            else if (buf[adminPwPos] == '9')  buf[adminPwPos] = END_MARKER;
+            else if (buf[adminPwPos] > END_MARKER) buf[adminPwPos] = 'A';
+            else                              buf[adminPwPos]++;
+            needRedraw = true;
+        }
+        if (btn->downPressed())
+        {
+            if (buf[adminPwPos] == 0)         buf[adminPwPos] = 'A';
+            else if (buf[adminPwPos] == 'A')  buf[adminPwPos] = END_MARKER;
+            else if (buf[adminPwPos] == '0')  buf[adminPwPos] = 'Z';
+            else if (buf[adminPwPos] == END_MARKER) buf[adminPwPos] = '9';
+            else                              buf[adminPwPos]--;
+            needRedraw = true;
+        }
+
+        // RIGHT: advance or finalize
+        if (btn->rightPressed())
+        {
+            if (buf[adminPwPos] == END_MARKER || adminPwPos >= maxLen - 1)
+            {
+                buf[adminPwPos] = 0; // terminate
+                if (buf[0] == 0) return; // must have at least 1 char
+
+                if (state == ADMIN_SET_PW)
+                {
+                    // Move to confirm step
+                    adminPwPos = 0;
+                    adminMismatch = false;
+                    state = ADMIN_CONFIRM_PW;
+                    needRedraw = true;
+                }
+                else
+                {
+                    // Compare set vs confirm
+                    if (strcmp(adminPwBuf, adminConfirmBuf) == 0)
+                    {
+                        pst->setAdminPassword(adminPwBuf);
+                        adminSessionActive = true; // logged in automatically after setup
+                        state = HOME;
+                        needRedraw = true;
+#if DEBUG_MOTOR
+                        Serial.println("[Admin] Password set successfully");
+#endif
+                    }
+                    else
+                    {
+                        // Mismatch: restart from SET_PW
+                        adminMismatch = true;
+                        memset(adminPwBuf, 0, sizeof(adminPwBuf));
+                        memset(adminConfirmBuf, 0, sizeof(adminConfirmBuf));
+                        adminPwPos = 0;
+                        state = ADMIN_SET_PW;
+                        needRedraw = true;
+                    }
+                }
+                return;
+            }
+
+            if (buf[adminPwPos] == 0) buf[adminPwPos] = 'A';
+            if (adminPwPos < maxLen - 1) adminPwPos++;
+            needRedraw = true;
+        }
+
+        // Draw password setup screen
+        disp->firstPage();
+        do
+        {
+            disp->setFont(u8g2_font_6x12_tf);
+            disp->drawBox(0, 0, 128, 13);
+            disp->setDrawColor(0);
+            const char *hdr = (state == ADMIN_SET_PW)
+                ? ((lang == LANG_EN) ? "SET ADMIN PW" : "CREAR PW ADMIN")
+                : ((lang == LANG_EN) ? "CONFIRM PW"   : "CONFIRMAR PW");
+            disp->drawStr(2, 10, hdr);
+            disp->setDrawColor(1);
+
+            if (adminMismatch)
+            {
+                disp->drawStr(2, 28, (lang == LANG_EN) ? "Mismatch! Retry:" : "No coincide! Re:");
+            }
+            else
+            {
+                disp->drawStr(2, 28, (lang == LANG_EN) ? "Password:" : "Contrasena:");
+            }
+
+            // Draw asterisks for already-confirmed chars
+            char stars[ADMIN_PW_MAX_LEN + 2];
+            for (int i = 0; i < adminPwPos; i++) stars[i] = '*';
+            stars[adminPwPos] = 0;
+            int starsX = 2;
+            disp->drawStr(starsX, 42, stars);
+            int curX = starsX + adminPwPos * 6; // 6px per char (6x12 font)
+
+            if (buf[adminPwPos] == END_MARKER)
+            {
+                // Draw END box — same style as name editor
+                disp->drawFrame(curX, 34, 18, 10);
+                disp->setFont(u8g2_font_4x6_tr);
+                disp->drawStr(curX + 1, 42, "END");
+                disp->setFont(u8g2_font_6x12_tf);
+            }
+            else
+            {
+                // Show current char being edited (visible, not masked)
+                char cur[2] = { buf[adminPwPos] ? buf[adminPwPos] : '_', 0 };
+                disp->drawStr(curX, 42, cur);
+                // Blinking underline cursor
+                if ((millis() / 500) % 2 == 0)
+                    disp->drawLine(curX, 44, curX + 5, 44);
+            }
+
+            disp->setFont(u8g2_font_5x8_tf);
+            disp->drawStr(2, 62, (lang == LANG_EN) ? "UP/DN=Char R=Next/END" : "UP/DN=Caracter R=Sig");
+        } while (disp->nextPage());
+    }
+
+    // -------------------- Admin Login --------------------
+
+    void enterAdminLogin(State returnTo)
+    {
+        adminLoginReturn = returnTo;
+        memset(adminLoginBuf, 0, sizeof(adminLoginBuf));
+        adminLoginPos    = 0;
+        adminLoginFailed = false;
+        state            = ADMIN_LOGIN;
+        needRedraw       = true;
+    }
+
+    void handleAdminLogin()
+    {
+        const char END_MARKER = 0x7F;
+        char *buf   = adminLoginBuf;
+        int  maxLen = ADMIN_PW_MAX_LEN;
+
+        if (btn->upPressed())
+        {
+            if (buf[adminLoginPos] == 0)               buf[adminLoginPos] = 'A';
+            else if (buf[adminLoginPos] == 'Z')        buf[adminLoginPos] = '0';
+            else if (buf[adminLoginPos] == '9')        buf[adminLoginPos] = END_MARKER;
+            else if (buf[adminLoginPos] > END_MARKER)  buf[adminLoginPos] = 'A';
+            else                                       buf[adminLoginPos]++;
+            needRedraw = true;
+        }
+        if (btn->downPressed())
+        {
+            if (buf[adminLoginPos] == 0)               buf[adminLoginPos] = 'A';
+            else if (buf[adminLoginPos] == 'A')        buf[adminLoginPos] = END_MARKER;
+            else if (buf[adminLoginPos] == '0')        buf[adminLoginPos] = 'Z';
+            else if (buf[adminLoginPos] == END_MARKER) buf[adminLoginPos] = '9';
+            else                                       buf[adminLoginPos]--;
+            needRedraw = true;
+        }
+
+        if (btn->leftPressed())
+        {
+            // Cancel login → go back
+            state = adminLoginReturn;
+            menuIndex = 0;
+            needRedraw = true;
+            return;
+        }
+
+        if (btn->rightPressed())
+        {
+            if (buf[adminLoginPos] == END_MARKER || adminLoginPos >= maxLen - 1)
+            {
+                buf[adminLoginPos] = 0;
+                // Verify
+                if (pst->checkAdminPassword(buf))
+                {
+                    adminSessionActive = true;
+                    adminLoginFailed   = false;
+                    // Execute pending action
+                    if (pendingAdminAction == ADMIN_ACT_DELETE)
+                    {
+                        pst->remove(pendingProfileIdx);
+                        MotorProfile mp;
+                        if (!pst->loadActive(mp)) mp.setDefaults();
+                        motor->applyProfile(mp);
+                        state = HOME;
+                    }
+                    else if (pendingAdminAction == ADMIN_ACT_MODE)
+                    {
+                        // Mode switched to Admin — go to main menu
+                        state = MENU;
+                        menuIndex = 0;
+                    }
+                    else
+                    {
+                        // ADMIN_ACT_PANEL
+                        enterAdminProfilePanel();
+                    }
+                    needRedraw = true;
+                    return;
+                }
+                else
+                {
+                    adminLoginFailed = true;
+                    memset(adminLoginBuf, 0, sizeof(adminLoginBuf));
+                    adminLoginPos = 0;
+                    needRedraw = true;
+                    return;
+                }
+            }
+            if (buf[adminLoginPos] == 0) buf[adminLoginPos] = 'A';
+            if (adminLoginPos < maxLen - 1) adminLoginPos++;
+            needRedraw = true;
+        }
+
+        // Draw login screen
+        disp->firstPage();
+        do
+        {
+            disp->setFont(u8g2_font_6x12_tf);
+            disp->drawBox(0, 0, 128, 13);
+            disp->setDrawColor(0);
+            disp->drawStr(2, 10, (lang == LANG_EN) ? "ADMIN LOGIN" : "ACCESO ADMIN");
+            disp->setDrawColor(1);
+
+            if (adminLoginFailed)
+                disp->drawStr(2, 26, (lang == LANG_EN) ? "Wrong password!" : "Clave incorrecta!");
+            else
+                disp->drawStr(2, 26, (lang == LANG_EN) ? "Enter password:" : "Introduzca clave:");
+
+            // Draw asterisks for already-confirmed chars
+            char stars[ADMIN_PW_MAX_LEN + 2];
+            for (int i = 0; i < adminLoginPos; i++) stars[i] = '*';
+            stars[adminLoginPos] = 0;
+            int starsX = 2;
+            disp->drawStr(starsX, 42, stars);
+            int curX = starsX + adminLoginPos * 6;
+
+            if (buf[adminLoginPos] == END_MARKER)
+            {
+                // Draw END box — same style as name editor
+                disp->drawFrame(curX, 34, 18, 10);
+                disp->setFont(u8g2_font_4x6_tr);
+                disp->drawStr(curX + 1, 42, "END");
+                disp->setFont(u8g2_font_6x12_tf);
+            }
+            else
+            {
+                // Show current char being edited (visible)
+                char cur[2] = { buf[adminLoginPos] ? buf[adminLoginPos] : '_', 0 };
+                disp->drawStr(curX, 42, cur);
+                // Blinking underline cursor
+                if ((millis() / 500) % 2 == 0)
+                    disp->drawLine(curX, 44, curX + 5, 44);
+            }
+
+            disp->setFont(u8g2_font_5x8_tf);
+            disp->drawStr(2, 62, (lang == LANG_EN) ? "R=Confirm L=Cancel" : "R=OK L=Cancelar");
+        } while (disp->nextPage());
+    }
+
+    // -------------------- User Panel --------------------
+    // Shows only [U] profiles. Any user can delete them.
+
+    void enterUserPanel()
+    {
+        userPanelIndex = 0;
+        menuScroll     = 0;
+        state          = USER_PANEL;
+        needRedraw     = true;
+    }
+
+    void handleUserPanel()
+    {
+        const char *items[7];
+        items[0] = (lang == LANG_EN) ? "Add Motor"     : "Anadir Motor";
+        items[1] = (lang == LANG_EN) ? "Delete Motor"  : "Borrar Motor";
+        items[2] = (lang == LANG_EN) ? "Language"      : "Idioma";
+        items[3] = (lang == LANG_EN) ? "Telemetry"     : "Telemetria";
+        items[4] = (lang == LANG_EN) ? "Manual"        : "Manual";
+        items[5] = (lang == LANG_EN) ? "About"         : "Acerca de";
+        items[6] = (lang == LANG_EN) ? "-> Admin mode" : "-> Modo Admin";
+        const int N = 7;
+
+        if (btn->upPressed()   && userPanelIndex > 0)     { userPanelIndex--; needRedraw = true; }
+        if (btn->downPressed() && userPanelIndex < N - 1) { userPanelIndex++; needRedraw = true; }
+
+        if (btn->leftPressed())
+        {
+            state = MENU; menuIndex = 0; needRedraw = true; return;
+        }
+
+        if (btn->rightPressed())
+        {
+            if (userPanelIndex == 0) { enterAddWizard(USER_PANEL); return; }
+            if (userPanelIndex == 1) { deleteListIndex = 0; menuScroll = 0; state = USER_DELETE_LIST; needRedraw = true; return; }
+            if (userPanelIndex == 2) { panelReturnState = USER_PANEL; state = SETTINGS_LANG; menuIndex = (lang == LANG_EN ? 0 : 1); needRedraw = true; return; }
+            if (userPanelIndex == 3) { panelReturnState = USER_PANEL; state = SETTINGS_TELE; needRedraw = true; return; }
+            if (userPanelIndex == 4) { panelReturnState = USER_PANEL; state = MANUAL; manualPage = 0; needRedraw = true; return; }
+            if (userPanelIndex == 5) { panelReturnState = USER_PANEL; state = ABOUT; needRedraw = true; return; }
+            if (userPanelIndex == 6) { enterConfirm(CONF_MODE_TO_ADMIN); return; }
+        }
+
+        if (needRedraw)
+        {
+            char title[20];
+            snprintf(title, sizeof(title), "%s [U]",
+                     (lang == LANG_EN) ? "USER PANEL" : "PANEL USER");
+            drawMenuList(items, N, title, "", userPanelIndex);
+            needRedraw = false;
+        }
+    }
+
+    // User delete list — shows ONLY [U] profiles
+    void handleUserDeleteList()
+    {
+        static int   uMap[MAX_PROFILES];
+        static char  names[MAX_PROFILES][22];
+        static const char *items[MAX_PROFILES];
+        int n = 0;
+        for (int i = 0; i < pst->getCount(); i++)
+        {
+            if (!pst->isAdminProfile(i))
+            {
+                String nm = pst->nameOf(i);
+                snprintf(names[n], sizeof(names[n]), "%s [U]", nm.c_str());
+                items[n] = names[n];
+                uMap[n]  = i;
+                n++;
+            }
+        }
+
+        if (btn->upPressed()   && deleteListIndex > 0)    { deleteListIndex--; needRedraw = true; }
+        if (btn->downPressed() && deleteListIndex < n - 1) { deleteListIndex++; needRedraw = true; }
+
+        if (btn->leftPressed())
+        {
+            state = USER_PANEL; needRedraw = true; return;
+        }
+
+        if (btn->rightPressed() && n > 0)
+        {
+            enterConfirm(CONF_DELETE_USER, uMap[deleteListIndex]); return;
+        }
+
+        if (!needRedraw) return;
+        needRedraw = false;
+
+        if (n == 0)
+        {
+            drawEmptyList((lang == LANG_EN) ? "No [U] motors" : "Sin motores [U]",
+                          (lang == LANG_EN) ? "DEL MOTORS [U]" : "BORRAR MOT [U]");
+            return;
+        }
+
+        if (deleteListIndex < menuScroll)       menuScroll = deleteListIndex;
+        if (deleteListIndex >= menuScroll + 3)  menuScroll = deleteListIndex - 2;
+
+        char title[20];
+        snprintf(title, sizeof(title), "%s", (lang == LANG_EN) ? "DEL MOTORS [U]" : "BORRAR MOT [U]");
+        drawMenuList(items, n, title, "", deleteListIndex);
+    }
+
+    // -------------------- Admin Profile Panel --------------------
+
+    void enterAdminProfilePanel()
+    {
+        adminPanelIndex = 0;
+        menuScroll = 0;
+        state      = ADMIN_PROFILE_MENU;
+        needRedraw = true;
+    }
+
+    void handleAdminProfileMenu()
+    {
+        const char *items[7];
+        items[0] = (lang == LANG_EN) ? "Add Motor"    : "Anadir Motor";
+        items[1] = (lang == LANG_EN) ? "Delete Motor" : "Borrar Motor";
+        items[2] = (lang == LANG_EN) ? "Language"     : "Idioma";
+        items[3] = (lang == LANG_EN) ? "Telemetry"    : "Telemetria";
+        items[4] = (lang == LANG_EN) ? "Manual"       : "Manual";
+        items[5] = (lang == LANG_EN) ? "About"        : "Acerca de";
+        items[6] = (lang == LANG_EN) ? "-> User mode" : "-> Modo User";
+        const int N = 7;
+
+        if (btn->upPressed()   && adminPanelIndex > 0)     { adminPanelIndex--; needRedraw = true; }
+        if (btn->downPressed() && adminPanelIndex < N - 1) { adminPanelIndex++; needRedraw = true; }
+
+        if (btn->leftPressed())
+        {
+            state = MENU; menuIndex = 0; needRedraw = true; return;
+        }
+
+        if (btn->rightPressed())
+        {
+            if (adminPanelIndex == 0) { enterAddWizard(ADMIN_PROFILE_MENU); return; }
+            if (adminPanelIndex == 1) { deleteListIndex = 0; menuScroll = 0; state = ADMIN_DELETE_LIST; needRedraw = true; return; }
+            if (adminPanelIndex == 2) { panelReturnState = ADMIN_PROFILE_MENU; state = SETTINGS_LANG; menuIndex = (lang == LANG_EN ? 0 : 1); needRedraw = true; return; }
+            if (adminPanelIndex == 3) { panelReturnState = ADMIN_PROFILE_MENU; state = SETTINGS_TELE; needRedraw = true; return; }
+            if (adminPanelIndex == 4) { panelReturnState = ADMIN_PROFILE_MENU; state = MANUAL; manualPage = 0; needRedraw = true; return; }
+            if (adminPanelIndex == 5) { panelReturnState = ADMIN_PROFILE_MENU; state = ABOUT; needRedraw = true; return; }
+            if (adminPanelIndex == 6) { enterConfirm(CONF_MODE_TO_USER); return; }
+        }
+
+        if (needRedraw)
+        {
+            char title[20];
+            snprintf(title, sizeof(title), "%s [A]",
+                     (lang == LANG_EN) ? "ADMIN PANEL" : "PANEL ADMIN");
+            drawMenuList(items, N, title, "", adminPanelIndex);
+            needRedraw = false;
+        }
+    }
+
+    // Admin delete list — shows ALL profiles (admin + user)
+    void handleAdminDeleteList()
+    {
+        int cnt = pst->getCount();
+        static char  names[MAX_PROFILES][24];
+        static const char *items[MAX_PROFILES];
+        int n = 0;
+        for (int i = 0; i < cnt; i++)
+        {
+            String nm = pst->nameOf(i);
+            snprintf(names[i], sizeof(names[i]), "%s [%s]",
+                     nm.c_str(), pst->isAdminProfile(i) ? "A" : "U");
+            items[n++] = names[i];
+        }
+
+        if (btn->upPressed()   && deleteListIndex > 0)    { deleteListIndex--; needRedraw = true; }
+        if (btn->downPressed() && deleteListIndex < n - 1) { deleteListIndex++; needRedraw = true; }
+
+        if (btn->leftPressed())
+        {
+            state = ADMIN_PROFILE_MENU; needRedraw = true; return;
+        }
+
+        if (btn->rightPressed() && n > 0)
+        {
+            enterConfirm(CONF_DELETE_ADMIN, deleteListIndex); return;
+        }
+
+        if (!needRedraw) return;
+        needRedraw = false;
+
+        if (n == 0)
+        {
+            drawEmptyList((lang == LANG_EN) ? "No motors" : "Sin motores",
+                          (lang == LANG_EN) ? "DEL MOTORS [A]" : "BORRAR MOT [A]");
+            return;
+        }
+
+        // Scroll
+        if (deleteListIndex < menuScroll)         menuScroll = deleteListIndex;
+        if (deleteListIndex >= menuScroll + 3)    menuScroll = deleteListIndex - 2;
+
+        char title[20];
+        snprintf(title, sizeof(title), "%s", (lang == LANG_EN) ? "DEL MOTORS [A]" : "BORRAR MOT [A]");
+        drawMenuList(items, n, title, "", deleteListIndex);
+    }
+
+    // Small helper: draw an empty-list screen with a title and centered message.
+    void drawEmptyList(const char *msg, const char *title)
+    {
+        disp->firstPage();
+        do
+        {
+            drawDoubleFrame();
+            disp->setFont(u8g2_font_6x12_tf);
+            disp->drawRBox(4, 4, 120, 13, 2);
+            disp->setDrawColor(0);
+            disp->drawStr(6, 14, title);
+            disp->setDrawColor(1);
+            disp->drawStr(8, 36, msg);
+            disp->setFont(u8g2_font_5x8_tf);
+            disp->drawStr(6, 60, (lang == LANG_EN) ? "L=Back" : "L=Atras");
+        } while (disp->nextPage());
+    }
+
+    // -------------------- Generic Confirmation Screen --------------------
+    // Call enterConfirm() with a message and two callbacks (confirm / cancel).
+    // RIGHT = confirm, LEFT = cancel. UP/DOWN toggle the selection.
+
+    enum ConfirmAction {
+        CONF_DELETE_USER,    // Delete a [U] profile from user panel
+        CONF_DELETE_ADMIN,   // Delete any profile from admin panel
+        CONF_MODE_TO_USER,   // Switch session mode Admin → User
+        CONF_MODE_TO_ADMIN   // Switch session mode User → Admin (then asks PW)
+    };
+
+    void enterConfirm(ConfirmAction action, int profileIdx = -1)
+    {
+        confirmAction   = action;
+        confirmProfIdx  = profileIdx;
+        confirmChoice   = false; // default = NO
+        state           = CONFIRM;
+        needRedraw      = true;
+    }
+
+    void handleConfirm()
+    {
+        if (btn->upPressed() || btn->downPressed())
+        {
+            confirmChoice = !confirmChoice;
+            needRedraw = true;
+        }
+
+        if (btn->leftPressed()) // cancel
+        {
+            if (confirmAction == CONF_DELETE_USER)
+                state = USER_DELETE_LIST;
+            else if (confirmAction == CONF_DELETE_ADMIN)
+                state = ADMIN_DELETE_LIST;
+            else
+                state = ADMIN_PROFILE_MENU;
+            needRedraw = true;
+            return;
+        }
+
+        if (btn->rightPressed())
+        {
+            if (!confirmChoice) // NO → cancel
+            {
+                if (confirmAction == CONF_DELETE_USER)
+                    state = USER_DELETE_LIST;
+                else if (confirmAction == CONF_DELETE_ADMIN)
+                    state = ADMIN_DELETE_LIST;
+                else
+                    state = ADMIN_PROFILE_MENU;
+                needRedraw = true;
+                return;
+            }
+
+            // YES → execute
+            if (confirmAction == CONF_DELETE_USER || confirmAction == CONF_DELETE_ADMIN)
+            {
+                pst->remove(confirmProfIdx);
+                MotorProfile mp;
+                if (!pst->loadActive(mp)) mp.setDefaults();
+                motor->applyProfile(mp);
+                if (deleteListIndex > 0) deleteListIndex--;
+                state = (confirmAction == CONF_DELETE_USER) ? USER_DELETE_LIST : ADMIN_DELETE_LIST;
+            }
+            else if (confirmAction == CONF_MODE_TO_USER)
+            {
+                adminSessionActive = false;
+                state = MENU;
+                menuIndex = 0;
+            }
+            else if (confirmAction == CONF_MODE_TO_ADMIN)
+            {
+                pendingAdminAction = ADMIN_ACT_MODE;
+                enterAdminLogin(MENU);
+                return;
+            }
+            needRedraw = true;
+            return;
+        }
+
+        if (!needRedraw) return;
+        needRedraw = false;
+
+        // Build message line depending on action
+        char msg[24];
+        if (confirmAction == CONF_DELETE_USER || confirmAction == CONF_DELETE_ADMIN)
+        {
+            strncpy(msg, (lang == LANG_EN) ? "DELETE?" : "BORRAR?", sizeof(msg));
+        }
+        else if (confirmAction == CONF_MODE_TO_USER)
+        {
+            strncpy(msg, (lang == LANG_EN) ? "Switch to USER?" : "Cambiar a USER?", sizeof(msg));
+        }
+        else
+        {
+            strncpy(msg, (lang == LANG_EN) ? "Switch to ADMIN?" : "Cambiar a ADMIN?", sizeof(msg));
+        }
+
+        disp->firstPage();
+        do
+        {
+            drawDoubleFrame();
+            disp->setFont(u8g2_font_6x12_tf);
+
+            // Header
+            disp->drawRBox(4, 4, 120, 13, 2);
+            disp->setDrawColor(0);
+            disp->drawStr(6, 14, msg);
+            disp->setDrawColor(1);
+
+            // YES / NO options centered
+            const char *yesStr = (lang == LANG_EN) ? "YES" : "SI";
+            const char *noStr  = "NO";
+
+            // NO on left, YES on right — highlight selected
+            int yesX = 72, noX = 20, optY = 38;
+
+            if (confirmChoice) // YES highlighted
+            {
+                disp->drawRBox(yesX - 4, optY - 10, 30, 14, 3);
+                disp->setDrawColor(0);
+                disp->drawStr(yesX, optY, yesStr);
+                disp->setDrawColor(1);
+                disp->drawStr(noX, optY, noStr);
+            }
+            else // NO highlighted
+            {
+                disp->drawRBox(noX - 4, optY - 10, 28, 14, 3);
+                disp->setDrawColor(0);
+                disp->drawStr(noX, optY, noStr);
+                disp->setDrawColor(1);
+                disp->drawStr(yesX, optY, yesStr);
+            }
+
+            disp->setFont(u8g2_font_5x8_tf);
+            disp->drawStr(6, 60, (lang == LANG_EN) ? "UP/DN=Toggle R=OK L=Cancel" : "UP/DN=Cambiar R=OK L=Cancel");
+        } while (disp->nextPage());
+    }
     U8G2 *disp = nullptr;
     Buttons *btn = nullptr;
     ProfileStore *pst = nullptr;
@@ -1758,9 +2346,46 @@ private:
 
     // AutoTest state variables
     unsigned long autoTestStartTime = 0;
-    int autoTestCycle = 0;          // 0, 1, 2 (3 cycles total)
-    int autoTestPhase = 0;          // 0=CW, 1=pause1s, 2=CCW, 3=pause2s
+    int autoTestCycle = 0;
+    int autoTestPhase = 0;
     uint32_t autoTestOriginalHz = 0;
     bool autoTestOriginalDir = true;
     bool autoTestAborted = false;
+
+    // ---- Admin system state ----
+    char  adminPwBuf[ADMIN_PW_MAX_LEN + 2]      = {0}; // New password buffer (setup)
+    char  adminConfirmBuf[ADMIN_PW_MAX_LEN + 2]  = {0}; // Confirm buffer (setup)
+    char  adminLoginBuf[ADMIN_PW_MAX_LEN + 2]    = {0}; // Login attempt buffer
+    int   adminPwPos        = 0;      // Cursor in setup buffers
+    int   adminLoginPos     = 0;      // Cursor in login buffer
+    bool  adminMismatch     = false;  // Setup PW mismatch flag
+    bool  adminLoginFailed  = false;  // Login failure flag
+    bool  adminSessionActive = false; // True while admin is authenticated
+    State adminLoginReturn  = MENU;   // State to return to after login
+
+    // Pending admin action (what to do after successful login)
+    enum AdminAction { ADMIN_ACT_NONE, ADMIN_ACT_DELETE, ADMIN_ACT_PANEL, ADMIN_ACT_MODE };
+    AdminAction pendingAdminAction = ADMIN_ACT_NONE;
+    int         pendingProfileIdx  = 0;
+
+    // Admin profile panel cursor
+    int  adminPanelIndex   = 0;
+    bool adminPanelSubMenu = false;
+
+    // User panel cursor
+    int  userPanelIndex    = 0;
+
+    // Shared delete-list cursor (used by both admin and user delete lists)
+    int  deleteListIndex   = 0;
+
+    // Where to return after wizard completes
+    State wizardReturnState = HOME;
+
+    // Where to return from Lang/Tele/Manual/About (the panel that launched them)
+    State panelReturnState  = MENU;
+
+    // Confirmation screen state
+    ConfirmAction confirmAction  = CONF_DELETE_USER;
+    int           confirmProfIdx = -1;
+    bool          confirmChoice  = false; // false=NO, true=YES
 };

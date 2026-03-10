@@ -124,6 +124,9 @@ void loop()
     // Periodically sample tachometer and update RPM (uses RPM_SAMPLE_MS window).
     motor.sampleRPM();
 
+    // Process acceleration/deceleration ramp and start-timeout watchdog.
+    motor.updateRamp();
+
     // Drive the UI state machine: rendering, menu navigation, and actions.
     ui.loop();
 }

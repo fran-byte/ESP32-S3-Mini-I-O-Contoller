@@ -47,6 +47,22 @@
 // RPM sampling window for tachometer processing.
 #define RPM_SAMPLE_MS 1000   // Window (ms) for RPM measurement averaging
 
+// ---------------------- Acceleration Ramp -------------------------
+// Smooth ramp applied when starting or changing target speed.
+#define RAMP_STEP_HZ    50       // Hz increment per ramp tick
+#define RAMP_INTERVAL_MS 20      // Time (ms) between ramp ticks
+
+// ---------------------- Start Timeout ---------------------------
+// If no RPM is detected within this window after starting, motor is cut.
+// Only active when the active profile has FG (tachometer) enabled.
+#define START_TIMEOUT_MS 4000    // Max ms to wait for first RPM reading
+
+// ---------------------- Admin Password --------------------------
+// Password used to access admin-protected operations (delete admin motors, etc.)
+// Stored once in NVS after first boot. Maximum 8 chars (A-Z, 0-9).
+#define ADMIN_DEFAULT_PW "1234"  // Shown only if no password has been set yet
+#define ADMIN_PW_MAX_LEN 8       // Max length of admin password
+
 // ---------------------- Debug Flags -------------------------------
 // Set any of these to 1 to enable verbose serial debug output.
 #define DEBUG_BUTTONS 0

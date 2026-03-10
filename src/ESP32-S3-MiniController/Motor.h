@@ -93,23 +93,45 @@ public:
         }
     }
 
-    // Start the motor at the current target frequency.
+    // Start the motor using ramp acceleration from 0 to targetHz.
     void start()
     {
         running = true;
-        setClock(targetHz);
+        startTimeoutFired  = false;
+
+        // Begin ramp from zero
+        rampCurrentHz      = 0;
+        rampActive         = true;
+        lastRampTick       = millis();
+
+        // Arm start timeout (only meaningful when profile has FG)
+        if (prof.hasFG)
+        {
+            startTimeoutActive = true;
+            startTimeoutStart  = millis();
+        }
+
+        // Apply clock at 0 so LEDC is attached; ramp will raise it
+        setClock(0);
         applyOutputs();
 
 #if DEBUG_MOTOR
-        Serial.print("Motor STARTED at ");
+        Serial.print("Motor STARTED (ramping to ");
         Serial.print(targetHz);
-        Serial.println(" Hz");
+        Serial.println(" Hz)");
 #endif
     }
 
-    // Stop the motor (clock = 0 Hz) and update control lines accordingly.
+    // Stop the motor with a deceleration ramp, then cut clock.
     void stop()
     {
+        // Cancel start-timeout monitoring
+        startTimeoutActive = false;
+
+        // If currently ramping up, stop the ramp immediately
+        rampActive    = false;
+        rampCurrentHz = 0;
+
         running = false;
         setClock(0);
         applyOutputs();
@@ -194,7 +216,9 @@ public:
 
         if (running)
         {
-            setClock(targetHz);
+            // Re-arm ramp toward new target (smooth speed change)
+            rampActive   = true;
+            lastRampTick = millis();
         }
     }
 
@@ -237,7 +261,9 @@ public:
 
         if (running)
         {
-            setClock(targetHz);
+            // Re-arm ramp toward new (lower) target
+            rampActive   = true;
+            lastRampTick = millis();
         }
     }
 
@@ -399,12 +425,97 @@ public:
     bool        dirCW = true, brakeOn = false, enabled = true, running = false;
     uint32_t    targetHz = 1000, currentHz = 0, rpm = 0;
 
+    // ---- Ramp state ----
+    bool     rampActive = false;   // true while ramping toward targetHz
+    uint32_t rampCurrentHz = 0;    // current ramp position
+
+    // ---- Start timeout state ----
+    bool     startTimeoutActive = false;
+    uint32_t startTimeoutStart  = 0;
+
+    // Update the ramp tick and start-timeout check.
+    // Must be called frequently from the main loop (ideally every ~10 ms).
+    void updateRamp()
+    {
+        uint32_t now = millis();
+
+        // ---- Ramp tick ----
+        if (rampActive && running)
+        {
+            if (now - lastRampTick >= RAMP_INTERVAL_MS)
+            {
+                lastRampTick = now;
+
+                if (rampCurrentHz < targetHz)
+                {
+                    rampCurrentHz += RAMP_STEP_HZ;
+                    if (rampCurrentHz > targetHz)
+                        rampCurrentHz = targetHz;
+                    setClock(rampCurrentHz);
+                }
+                else if (rampCurrentHz > targetHz)
+                {
+                    // Deceleration ramp
+                    if (rampCurrentHz > RAMP_STEP_HZ)
+                        rampCurrentHz -= RAMP_STEP_HZ;
+                    else
+                        rampCurrentHz = 0;
+                    if (rampCurrentHz < targetHz)
+                        rampCurrentHz = targetHz;
+                    setClock(rampCurrentHz);
+                }
+                else
+                {
+                    // Reached target
+                    rampActive = false;
+#if DEBUG_MOTOR
+                    Serial.println("Ramp complete");
+#endif
+                }
+            }
+        }
+
+        // ---- Start timeout check ----
+        if (startTimeoutActive && running)
+        {
+            if ((now - startTimeoutStart) >= START_TIMEOUT_MS)
+            {
+                // Only trigger if FG is configured and we still have no RPM
+                if (prof.hasFG && rpm == 0)
+                {
+                    stop();
+                    startTimeoutActive = false;
+                    startTimeoutFired  = true;
+#if DEBUG_MOTOR
+                    Serial.println("Start timeout: no RPM detected, motor cut");
+#endif
+                }
+                else
+                {
+                    // RPM received or no FG → cancel timeout monitoring
+                    startTimeoutActive = false;
+                    startTimeoutFired  = false;
+                }
+            }
+            else if (prof.hasFG && rpm > 0)
+            {
+                // Got RPM before timeout expired → all good
+                startTimeoutActive = false;
+                startTimeoutFired  = false;
+            }
+        }
+    }
+
+    // Public flag: UI can read this to show a "no RPM / stall" warning.
+    bool startTimeoutFired = false;
+
 private:
     // Pulse counter updated from ISR; must be volatile.
     static volatile uint32_t fgPulses;
 
     // Timing for RPM sampling, preferences handle, and persisted flags.
     uint32_t    lastRpmSample = 0;
+    uint32_t    lastRampTick  = 0;   // Last ramp tick timestamp
     Preferences sysPrefs;
     bool        telemetryOn = false;
     Language    lang = LANG_ES;

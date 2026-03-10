@@ -19,6 +19,7 @@ struct MotorProfile {
   bool   enableActiveHigh; // true if ENABLE output is asserted HIGH
   uint8_t  ppr;            // Pulses per revolution (tachometer/FG)
   uint32_t maxClockHz;     // Safety limit for the generated clock
+  bool   isAdminProfile;   // true = only admin can delete/demote this profile
 
   // Initialize with safe, generic defaults.
   void setDefaults() {
@@ -33,6 +34,7 @@ struct MotorProfile {
     enableActiveHigh = true;
     ppr = 6;
     maxClockHz = 20000;
+    isAdminProfile = false;
   }
 };
 
@@ -80,6 +82,7 @@ public:
     snprintf(key, sizeof(key), "m%d_ena", idx);  m.enableActiveHigh = prefs.getBool(key, true);
     snprintf(key, sizeof(key), "m%d_ppr", idx);  m.ppr              = prefs.getUChar(key, 6);
     snprintf(key, sizeof(key), "m%d_max", idx);  m.maxClockHz       = prefs.getUInt(key, 20000);
+    snprintf(key, sizeof(key), "m%d_adm", idx);  m.isAdminProfile   = prefs.getBool(key, false);
 
     return true;
   }
@@ -102,6 +105,7 @@ public:
     snprintf(key, sizeof(key), "m%d_ena",  idx); prefs.putBool  (key, m.enableActiveHigh);
     snprintf(key, sizeof(key), "m%d_ppr",  idx); prefs.putUChar (key, m.ppr);
     snprintf(key, sizeof(key), "m%d_max",  idx); prefs.putUInt  (key, m.maxClockHz);
+    snprintf(key, sizeof(key), "m%d_adm",  idx); prefs.putBool  (key, m.isAdminProfile);
 
     // If saving beyond current count, grow count and persist it.
     if (idx >= count) {
@@ -131,7 +135,7 @@ public:
     // Clear the tail keys for the last, now-unused slot.
     char key[16];
     int last = count - 1;
-    const char* sfx[] = { "name","br","fg","ld","lda","st","sta","en","ena","ppr","max" };
+    const char* sfx[] = { "name","br","fg","ld","lda","st","sta","en","ena","ppr","max","adm" };
     for (auto s : sfx) {
       snprintf(key, sizeof(key), "m%d_%s", last, s);
       prefs.remove(key);
@@ -168,6 +172,50 @@ public:
     char key[16];
     snprintf(key, sizeof(key), "m%d_name", idx);
     return prefs.getString(key, "Unnamed");
+  }
+
+  // Returns true if the profile at idx is admin-protected.
+  bool isAdminProfile(int idx) {
+    if (idx < 0 || idx >= count) return false;
+    char key[16];
+    snprintf(key, sizeof(key), "m%d_adm", idx);
+    return prefs.getBool(key, false);
+  }
+
+  // Promote or demote a profile's admin flag and persist it.
+  void setAdminFlag(int idx, bool adminFlag) {
+    if (idx < 0 || idx >= count) return;
+    char key[16];
+    snprintf(key, sizeof(key), "m%d_adm", idx);
+    prefs.putBool(key, adminFlag);
+    // Reload into any cached profile if needed by the caller.
+  }
+
+  // ---- Admin password management (stored in "sys" NVS namespace) ----
+  // Returns true if an admin password has been set (first boot = false).
+  bool hasAdminPassword() {
+    Preferences sys;
+    sys.begin("sys", true); // read-only
+    bool has = sys.isKey("adminpw");
+    sys.end();
+    return has;
+  }
+
+  // Store the admin password (plain text, max ADMIN_PW_MAX_LEN chars).
+  void setAdminPassword(const char *pw) {
+    Preferences sys;
+    sys.begin("sys", false);
+    sys.putString("adminpw", pw);
+    sys.end();
+  }
+
+  // Verify a candidate password. Returns true if it matches stored value.
+  bool checkAdminPassword(const char *candidate) {
+    Preferences sys;
+    sys.begin("sys", true);
+    String stored = sys.getString("adminpw", "");
+    sys.end();
+    return (stored.length() > 0 && stored.equals(candidate));
   }
 
 private:
